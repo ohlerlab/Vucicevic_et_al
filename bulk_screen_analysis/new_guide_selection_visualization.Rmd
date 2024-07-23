@@ -1,0 +1,1515 @@
+---
+title: "Guide selection report"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+## Region forming
+First I load the merged regions as in '~/Documents/Phox2b/merged_windows/merged_windowed_500.bed' I named them and then unnest them by BIN to be able to integrate all information. 
+We load results from the MLM by BIN and results from the NHT per guide.
+
+```{r cars}
+library(tidyverse)
+library(knitr)
+library(broom.mixed)
+#loading raw region data.
+raw_regions <- readr::read_delim('regions/merged_windowed_500.bed',delim='\t',col_names=c('Chr','start','end','bins'))
+regions <- readr::read_delim('regions/merged_windowed_500.bed',delim='\t',col_names=c('Chr','start','end','bins'))
+named_regions <- dplyr::mutate(regions,name=paste('Region',seq(1,nrow(regions),1),sep = '_'))
+regions <- dplyr::mutate(regions,name=paste('Region',seq(1,nrow(regions),1),sep = '_')) %>%
+  dplyr::mutate(BINS=str_split(bins,pattern = ','))%>%
+  tidyr::unnest(cols=c(BINS))
+###############################################################
+#loading bin results from the MLM (VPR) 
+
+#new bin coordenates
+bc <- read_lines('design_bin_coords.txt')
+VPR_window_results <- readr::read_delim('sliding_window/num_VPR_pvalues.txt',delim='\t',col_names=c('bin','coeff','pval'))
+rep_bc <- str_replace(bc,'-',':')
+split_bc <- str_split_fixed(rep_bc,':',3)
+bins_only <- data.frame('Chr'=split_bc[,1],'start'=split_bc[,2],'end'=split_bc[,3])
+sequence <- str_pad(seq(00001,20000,1),5,side='left',pad=0)
+#bins_only$bin <- paste('PHOX2B',sequence,sep='.')
+bins_only$bin <- c('PHOX2B.00001',VPR_window_results$bin,'PHOX2B.20000') 
+head(bins_only)
+###########################
+#VPR_bin_results_full <- readr::read_delim('~/Documents/Phox2b/merged/VPR_full_results.txt',delim='\t',col_names=c('Chr','start','end','bin','pvalue','fdr','estimate'))
+#bins_only <- dplyr::select(VPR_bin_results_full,Chr,start,end,bin)
+VPR_window_results <- readr::read_delim('sliding_window/num_VPR_pvalues.txt',delim='\t',col_names=c('bin','coeff','pval'))
+VPR_window_speed <- readr::read_delim('sliding_window/speed_VPR_pvalues.txt',delim='\t',col_names=T)
+colnames(VPR_window_speed) <- 'speed'
+VPR_window_results$fdr <- p.adjust(VPR_window_results$pval,method='fdr')
+VPR_window_results$speed <- VPR_window_speed$speed
+VPR_bin_results <- full_join(regions,left_join(bins_only,VPR_window_results,by='bin'),by=c('BINS'='bin'),suffix=c('.region','.bin')) %>%
+  mutate(no_bins=str_count(bins,'PHOX2B'))
+#loading guide results from NHT
+VPR_guide_results <- readr::read_delim('~/Documents/Phox2b/FINAL/VPR_guide_results.txt',delim='\t',col_names=T)
+###############################################################
+###############################################################
+#loading bin results from the MLM (KRAB)
+#KRAB_bin_results_full <- readr::read_delim('~/Documents/Phox2b/merged/VPR_full_results.txt',delim='\t',col_names=c('Chr','start','end','bin','pvalue','fdr','estimate'))
+#bins_only <- dplyr::select(KRAB_bin_results_full,Chr,start,end,bin)
+KRAB_window_results <- readr::read_delim('sliding_window/num_KRAB_pvalues.txt',delim='\t',col_names=c('bin','coeff','pval'))
+KRAB_window_speed <- readr::read_delim('sliding_window/speed_KRAB_pvalues.txt',delim='\t',col_names=T)
+colnames(KRAB_window_speed) <- 'speed'
+KRAB_window_results$fdr <- p.adjust(KRAB_window_results$pval,method='fdr')
+KRAB_window_results$speed <- KRAB_window_speed$speed
+KRAB_bin_results <- full_join(regions,left_join(bins_only,KRAB_window_results,by='bin'),by=c('BINS'='bin'),suffix=c('.region','.bin')) %>%
+  mutate(no_bins=str_count(bins,'PHOX2B'))
+#loading guide results from NHT
+KRAB_guide_results <- readr::read_delim('~/Documents/Phox2b/FINAL/KRAB_guide_results.txt',delim='\t',col_names=T)
+###############################################################
+```
+
+## Region alaysis
+
+After loading the count tables per construct I use regions instead of BINS for grouping and run the linear model per region, Using ALL guides within the region, even if they are not significant.
+
+```{r pressure, echo=FALSE}
+#loading VPR counts
+VPR_counts <- read_delim('named_counts/VPR_table.txt',col_names = T,delim=',')
+
+# taking the mean of the replicates, renaming and selecting useful columns
+VPR <- VPR_counts %>% mutate(V_5=(`VPR_D5-1_S8`+`VPR_D5-2_S9`)/2,V_20=(`VPR_D20_S10`),V_29=(`VPR_D29-1_S11`+`VPR_D29-2_S12`)/2,V_33=(`VPR_D33-1_S13`+`VPR_D33-2_S14`)/2) %>% dplyr::select(GUIDE,Maxi,V_5,V_20,V_29,V_33)
+
+#loading KRAB_counts
+KRAB_counts <- read_delim('named_counts/KRAB_table.txt',col_names = T,delim=',')
+
+# taking the mean of the replicates, renaming and selecting useful columns
+KRAB <- KRAB_counts %>% mutate(K_5=(`KRAB_D5-1_S1`+`KRAB_D5-2_S2`)/2,K_20=(`KRAB_D20_S3`),K_29=(`KRAB_D29-1_S4`+`KRAB_D29-2_S5`)/2,K_33=(`KRAB_D33-1_S6`+`KRAB_D33-2_S7`)/2) %>% dplyr::select(GUIDE,Maxi,K_5,K_20,K_29,K_33)
+
+#getting guide and region information for visualization later. 
+guides_info <- dplyr::select(VPR_guide_results,GUIDE,BIN)
+region_info <- dplyr::select(regions,name,BINS)
+full_info <- full_join(region_info,guides_info,by=c('BINS'='BIN'))
+full_VPR_Dataset <- left_join(full_info,VPR,by='GUIDE') %>% dplyr::select(-BINS)
+full_KRAB_Dataset <- left_join(full_info,KRAB,by='GUIDE') %>% dplyr::select(-BINS)
+
+#loading mlm functions
+source('~/Documents/MLM/find_hits.R')
+
+#renaming the columns to help the function work better
+colnames(full_KRAB_Dataset)[1] <- 'Gene'
+colnames(full_VPR_Dataset)[1] <- 'Gene'
+colnames(full_KRAB_Dataset)[2] <- 'sgRNA'
+colnames(full_VPR_Dataset)[2] <- 'sgRNA'
+colnames(full_KRAB_Dataset)[3] <- 'Maxi_0'
+colnames(full_VPR_Dataset)[3] <- 'Maxi_0'
+#Trying to run the functions on this format of the dataframes. 
+p_value <- function(anova){
+  anova$`Pr(>Chisq)`[2]
+}
+model_testing <- function(nested_df){
+  nested_df %>% 
+    ungroup() %>%
+    mutate(mlm = map(data,mlm_function),mm = map(data,min_function)) %>%
+    mutate(significance=map2(mlm,mm,anova)) %>%
+    mutate(pvalue=map_dbl(significance,p_value)) %>%
+    mutate(fdr=p.adjust(pvalue, method="fdr"))%>%
+    mutate(tidied=map(mlm,tidy)) %>%
+    unnest(tidied) %>%
+    filter(term =='Time') %>%
+    dplyr::select(-term,-std.error,-statistic,-group)
+}
+
+#Generating input for mageck analysis
+mageck_input_vpr <- dplyr::select(full_VPR_Dataset,sgRNA,Gene,Maxi_0,V_33)
+write_delim(mageck_input_vpr,'mageck/input_mageck_vpr.txt',delim='\t',col_names = TRUE)
+mageck_input_krab <- dplyr::select(full_KRAB_Dataset,sgRNA,Gene,Maxi_0,K_33)
+write_delim(mageck_input_krab,'mageck/input_mageck_krab.txt',delim='\t',col_names = TRUE)
+
+#Finding regions that have only one guide cause they cannot be scored
+VPR_single_guide <- full_VPR_Dataset%>%
+  group_by(Gene)%>%
+  count()%>%
+  filter(n==1)
+loners <- VPR_single_guide$Gene
+## Running analysis for each construct
+#VPR
+VPR_results <- full_VPR_Dataset %>% 
+  filter(!Gene%in%loners)%>%
+  log_norm()%>%
+  add_replicate()%>%
+  slim()%>%
+  gene_nest()%>%
+  model_testing()
+VPR_results <- VPR_results %>%
+  dplyr::select(-data,-mlm,-mm,-significance)
+head(VPR_results)
+#KRAB
+KRAB_results <- full_KRAB_Dataset %>% 
+  filter(!Gene%in%loners)%>%
+  log_norm()%>%
+  add_replicate()%>%
+  slim()%>%
+  gene_nest()%>%
+  model_testing()
+KRAB_results <- KRAB_results %>%
+  dplyr::select(-data,-mlm,-mm,-significance)
+head(KRAB_results)
+```
+
+```{r}
+#stablishing theme and colors for the plots
+mycolors <- c("#6B8993FF", "#E7695DFF", "#D2D2D2FF")
+mycolorstable <- c("#6B8993FF", "#E7695DFF", "#969696FF")
+names(mycolors) <- c("Depleted", "Enriched", "NoChange")
+names(mycolorstable) <- c("Depleted", "Enriched", "NoChange")
+
+###########################
+#REGIONS
+pdf('region_images.pdf',width = 6, height = 4)
+#VPR_plot
+VPR_results_plot <- mutate(VPR_results,'Result'=ifelse(estimate<0&fdr<0.05,'Depleted',ifelse(estimate>0&fdr<0.05,'Enriched','NoChange')))%>%
+  drop_na(Gene)
+ggplot(VPR_results_plot,aes(x=estimate,y=-log10(fdr),col=Result))+
+  geom_point(alpha=0.7,)+
+  xlim(-0.075,0.075)+
+  ylim(0,60)+
+  theme_classic()+
+  theme(
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.box.background = element_rect(fill = "transparent", colour = NA,)
+  )+
+  scale_color_manual(values=mycolors)+
+  ggtitle('VPR regions')
+#VPR_plot
+KRAB_results_plot <- mutate(KRAB_results,'Result'=ifelse(estimate<0&fdr<0.05,'Depleted',ifelse(estimate>0&fdr<0.05,'Enriched','NoChange')))%>%
+  drop_na(Gene)
+ggplot(KRAB_results_plot,aes(x=estimate,y=-log10(fdr),col=Result))+
+  geom_point(alpha=0.7,)+
+  xlim(-0.075,0.075)+
+  ylim(0,3)+
+    theme_classic()+
+  theme(
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.box.background = element_rect(fill = "transparent", colour = NA,)
+  )+
+  scale_color_manual(values=mycolors)+
+  ggtitle('KRAB regions')
+###########################
+#pdf('~/Documents/Phox2b/region_images.pdf',width = 6, height = 4)
+#Both constructs plot
+VPR_results_plot$Construct <- rep('VPR',nrow(VPR_results_plot))
+KRAB_results_plot$Construct <- rep('KRAB',nrow(KRAB_results_plot))
+full_regions_results_plot <- rbind(VPR_results_plot,KRAB_results_plot)%>%
+  drop_na(Gene)
+ggplot(full_regions_results_plot,aes(x=estimate,y=-log10(fdr),col=Result))+
+  geom_point(alpha=0.5,)+
+  xlim(-0.075,0.075)+
+  ylim(0,60)+
+  theme_minimal()+
+  scale_color_manual(values=mycolors)+
+  facet_wrap(~Construct)+
+  ggtitle('Region Results by Construct')
+# Cross tabulation table
+library(GGally)
+ggtable(full_regions_results_plot,'Result','Construct',title = 'Regions results by construct')
+ggtable(full_regions_results_plot,'Result','Construct',cells = 'row.prop',title = 'Regions results by construct (proportion)',mapping = ggplot2::aes(color=Result,))+
+  scale_color_manual(values=mycolorstable)
+#not really used table
+library(sjPlot)
+sjt.xtab(full_regions_results_plot$Result,full_regions_results_plot$Construct)
+regions_table <- as.data.frame(table(full_regions_results_plot$Result,full_regions_results_plot$Construct))
+dev.off()
+
+```
+
+
+```{r}
+###########################
+##BINS
+pdf('window_images.pdf',width = 6, height = 4)
+#VPR_plot
+VPR_window_results_plot <- mutate(VPR_window_results,'Result'=ifelse(coeff<0&fdr<0.05,'Depleted',ifelse(coeff>0&fdr<0.05,'Enriched','NoChange')))
+ggplot(VPR_window_results_plot,aes(x=coeff,y=-log10(fdr),col=Result))+
+  geom_point(alpha=0.5,)+
+  xlim(-0.075,0.075)+
+  ylim(0,8)+
+  theme_classic()+
+  theme(
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.box.background = element_rect(fill = "transparent", colour = NA,)
+  )+
+  scale_color_manual(values=mycolors)+
+  ggtitle('VPR bins')
+#KRAB_plot
+KRAB_window_results_plot <- mutate(KRAB_window_results,'Result'=ifelse(coeff<0&fdr<0.05,'Depleted',ifelse(coeff>0&fdr<0.05,'Enriched','NoChange')))
+ggplot(KRAB_window_results_plot,aes(x=coeff,y=-log10(fdr),col=Result))+
+  geom_point(alpha=0.5,)+
+  xlim(-0.075,0.075)+
+  ylim(0,2)+
+  theme_classic()+
+  theme(
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.box.background = element_rect(fill = "transparent", colour = NA,)
+  )+
+  scale_color_manual(values=mycolors)+
+  ggtitle('KRAB bins')
+###########################
+#pdf('~/Documents/Phox2b/window_images.pdf',width = 6, height = 4)
+#Both constructs
+VPR_window_results_plot$Construct <- rep('VPR',nrow(VPR_window_results_plot))
+KRAB_window_results_plot$Construct <- rep('KRAB',nrow(KRAB_window_results_plot))
+full_window_results_plot <- rbind(VPR_window_results_plot,KRAB_window_results_plot)
+ggplot(full_window_results_plot,aes(x=coeff,y=-log10(fdr),col=Result))+
+  geom_point(alpha=0.5,)+
+  xlim(-0.075,0.075)+
+  ylim(0,8)+
+  theme_classic()+
+  theme(
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.box.background = element_rect(fill = "transparent", colour = NA,)
+  )+
+  scale_color_manual(values=mycolors)+
+  facet_wrap(~Construct)+
+  ggtitle('Window Results by Construct')
+
+#library(GGally)
+ggtable(full_window_results_plot,'Result','Construct',title = 'Window results by construct')
+ggtable(full_window_results_plot,'Result','Construct',cells = 'row.prop',title = 'Window results by construct (proportion)',mapping = ggplot2::aes(color=Result,))+
+  scale_color_manual(values=mycolorstable)
+dev.off()
+
+# Bin/construct table
+VPR_hits <- VPR_window_results_plot %>% filter(Result!='NoChange')
+KRAB_hits <- KRAB_window_results_plot %>% filter(Result!='NoChange')
+shared_windows <- inner_join(VPR_hits,KRAB_hits,by='bin',suffix=c('.VPR','.KRAB')) %>%
+  dplyr::select(bin,Result.VPR,Result.KRAB)
+
+#Shared bins in constructs
+shared_windows_table <- shared_windows %>%
+  dplyr::mutate('VPR_results'=ifelse(Result.VPR=='Depleted',-1,1))%>%
+  dplyr::mutate('KRAB_results'=ifelse(Result.KRAB=='Depleted',-1,1))%>%
+  mutate('Similar'=(sign(VPR_results)==sign(KRAB_results)))%>%
+  dplyr::select(bin,VPR_results,KRAB_results,Similar)
+
+# Shared bins plot
+test <- as.data.frame(table(shared_windows$Result.VPR,shared_windows$Result.KRAB))
+colnames(test) <- c('VPR','KRAB','Freq')
+g <- ggplot(test,aes(VPR,KRAB))+ 
+  geom_point(aes(size = Freq),color = 'grey')+ 
+  theme_classic()+
+  scale_size_continuous(range=c(10,30))+
+  geom_text(aes(label = Freq))+
+  theme(legend.position = 'none',
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),  
+        axis.title.x = element_text(size = 18),
+        axis.title.y = element_text(size = 18))
+pdf('significant_bins_both.pdf')
+g
+dev.off()
+#formattable
+library(formattable)
+colnames(shared_windows_table)<-c('Bin','VPR','KRAB','Similar')
+
+icon_formatter <- function() {
+    formatter("span", 
+        style = x ~ style(color = ifelse(x, "green", "red")), x ~ icontext(ifelse(x, "ok", "remove"), "")
+    )	 	 
+}	
+custom_color_tile <- function (...) 
+{
+    formatter("span",
+              style = function(x) style(display = "block", 
+                                        padding = "0 4px", 
+                                        `color` = csscolor(gradient(as.numeric(x), ...)), 
+                                        `width` = "200px",
+                                        `border-radius` = "4px", 
+                                        `background-color` = csscolor(gradient(as.numeric(x), 
+                                        ...))))
+}
+
+table <- formattable(shared_windows_table,
+             align =c("l","c","c","c"),list(
+            `VPR`= custom_color_tile('blue','red'),
+            `KRAB`= custom_color_tile('blue','red'),
+            `Similar`= icon_formatter()
+            )
+)
+
+```
+
+
+```{r}
+##GUIDES
+pdf('guide_images.pdf',width = 6, height = 4)
+#VPR_plot
+VPR_guide_results_plot <- mutate(VPR_guide_results,'Result'=ifelse(fdr<0.05,ifelse(logfold>0,'Enriched','Depleted'),'NoChange'))
+ggplot(VPR_guide_results_plot,aes(x=logfold,y=-log10(fdr),col=Result))+
+  geom_jitter(alpha=0.5,width=0.5,height=0.5)+
+  xlim(-7.5,7.5)+
+  #ylim(0,20)+
+  theme_classic()+
+  theme(
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.box.background = element_rect(fill = "transparent", colour = NA,)
+  )+
+  scale_color_manual(values=mycolors)+
+  ggtitle('VPR guides (FDR)')
+#KRAB_plot
+KRAB_guide_results_plot <- mutate(KRAB_guide_results,'Result'=ifelse(fdr<0.05,ifelse(logfold>0,'Enriched','Depleted'),'NoChange'))
+ggplot(KRAB_guide_results_plot,aes(x=logfold,y=-log10(fdr),col=Result))+
+  #geom_point()+
+  geom_jitter(alpha=0.5,width=0.5,height=0.5)+
+  xlim(-7.5,7.5)+
+  #ylim(0,20)+
+  theme_classic()+
+  theme(
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.box.background = element_rect(fill = "transparent", colour = NA,)
+  )+
+  scale_color_manual(values=mycolors)+
+  ggtitle('KRAB guides (FDR)')
+###########################
+#pdf('~/Documents/Phox2b/guide_images.pdf',width = 6, height = 4)
+#Both plots
+VPR_guide_results_plot$Construct <- rep('VPR',nrow(VPR_guide_results_plot))
+KRAB_guide_results_plot$Construct <- rep('KRAB',nrow(KRAB_guide_results_plot))
+full_guide_results_plot <- rbind(VPR_guide_results_plot,KRAB_guide_results_plot)
+ggplot(full_guide_results_plot,aes(x=logfold,y=-log10(fdr),col=Result))+
+  #geom_point()+
+  geom_jitter(alpha=0.5,width=0.5,height=0.5)+
+  xlim(-7.5,7.5)+
+  #ylim(0,20)+
+  theme_classic()+
+  theme(
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.box.background = element_rect(fill = "transparent", colour = NA,)
+  )+
+  scale_color_manual(values=mycolors)+
+  facet_wrap(~Construct)+
+  ggtitle('Guide Results by Construct')
+#library(GGally)
+ggtable(full_guide_results_plot,'Result','Construct',title = 'Guide results by construct')
+ggtable(full_guide_results_plot,'Result','Construct',cells = 'row.prop',title = 'Guide results by construct (proportion)',mapping = ggplot2::aes(color=Result,))+
+  scale_color_manual(values=mycolorstable)
+dev.off()
+
+##GUIDES secondary plots, not really used
+VPR_guide_results_plot <- mutate(VPR_guide_results,'Result'=ifelse(logfold<0&pvalue<0.05,'Depleted',ifelse(logfold>0&pvalue<0.05,'Enriched','NoChange')))
+ggplot(VPR_guide_results_plot,aes(x=logfold,y=-log10(pvalue),col=Result))+
+  geom_point(alpha=0.5,)+
+  xlim(-7.5,7.5)+
+  ylim(0,20)+
+  theme_classic()+
+  theme(
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.box.background = element_rect(fill = "transparent", colour = NA,)
+  )+
+  scale_color_manual(values=mycolors)+
+  ggtitle('VPR bins (raw p value)')
+KRAB_guide_results_plot <- mutate(KRAB_guide_results,'Result'=ifelse(logfold<0&pvalue<0.05,'Depleted',ifelse(logfold>0&pvalue<0.05,'Enriched','NoChange')))
+ggplot(KRAB_guide_results_plot,aes(x=logfold,y=-log10(pvalue),col=Result))+
+  geom_point(alpha=0.5,)+
+  xlim(-7.5,7.5)+
+  ylim(0,20)+
+  theme_classic()+
+  theme(
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.box.background = element_rect(fill = "transparent", colour = NA,)
+  )+
+  scale_color_manual(values=mycolors)+
+  ggtitle('KRAB guides (raw p value)')
+VPR_guide_results_plot$Construct <- rep('VPR',nrow(VPR_guide_results_plot))
+KRAB_guide_results_plot$Construct <- rep('KRAB',nrow(KRAB_guide_results_plot))
+full_guide_results_plot <- rbind(VPR_guide_results_plot,KRAB_guide_results_plot)
+ggplot(full_guide_results_plot,aes(x=logfold,y=-log10(fdr),col=Result))+
+  geom_point(alpha=0.5,)+
+  xlim(-7.5,7.5)+
+  ylim(0,20)+
+  theme_classic()+
+  theme(
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.box.background = element_rect(fill = "transparent", colour = NA,)
+  )+
+  scale_color_manual(values=mycolors)+
+  facet_wrap(~Construct)+
+  ggtitle('Guide Results by Construct')
+
+#Guide cross tabulation table
+library(GGally)
+ggtable(full_guide_results_plot,'Result','Construct',title = 'Guide results by construct')
+ggtable(full_guide_results_plot,'Result','Construct',cells = 'row.prop',title = 'Guide results by construct (proportion)',mapping = ggplot2::aes(color=Result,))+
+  scale_color_manual(values=mycolorstable)+
+  theme_minimal()
+
+# GUIDE/construct table
+VPR_hits <- VPR_guide_results_plot %>% filter(Result!='NoChange')
+KRAB_hits <- KRAB_guide_results_plot %>% filter(Result!='NoChange')
+shared_windows <- inner_join(VPR_hits,KRAB_hits,by='GUIDE',suffix=c('.VPR','.KRAB')) %>%
+  dplyr::select(GUIDE,Result.VPR,Result.KRAB)
+
+#Shared GUIDE in constructs
+shared_windows_table <- shared_windows %>%
+  dplyr::mutate('VPR_results'=ifelse(Result.VPR=='Depleted',-1,1))%>%
+  dplyr::mutate('KRAB_results'=ifelse(Result.KRAB=='Depleted',-1,1))%>%
+  mutate('Similar'=(sign(VPR_results)==sign(KRAB_results)))%>%
+  dplyr::select(GUIDE,VPR_results,KRAB_results,Similar)
+
+
+test <- as.data.frame(table(shared_windows$Result.VPR,shared_windows$Result.KRAB))
+colnames(test) <- c('VPR','KRAB','Freq')
+g <- ggplot(test,aes(VPR,KRAB))+ 
+  geom_point(aes(size = Freq),color = 'grey')+ 
+  theme_classic()+
+  scale_size_continuous(range=c(10,30))+
+  geom_text(aes(label = Freq))+
+  theme(legend.position = 'none',
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),  
+        axis.title.x = element_text(size = 18),
+        axis.title.y = element_text(size = 18))
+pdf('significant_GUIDE.pdf')
+g
+dev.off()
+#formattable
+library(formattable)
+colnames(shared_windows_table)<-c('GUIDE','VPR','KRAB','Similar')
+
+icon_formatter <- function() {
+    formatter("span", 
+        style = x ~ style(color = ifelse(x, "green", "red")), x ~ icontext(ifelse(x, "ok", "remove"), "")
+    )	 	 
+}	
+custom_color_tile <- function (...) 
+{
+    formatter("span",
+              style = function(x) style(display = "block", 
+                                        padding = "0 4px", 
+                                        `color` = csscolor(gradient(as.numeric(x), ...)), 
+                                        `width` = "200px",
+                                        `border-radius` = "4px", 
+                                        `background-color` = csscolor(gradient(as.numeric(x), 
+                                        ...))))
+}
+
+table <- formattable(shared_windows_table,
+             align =c("l","c","c","c"),list(
+            `VPR`= custom_color_tile('blue','red'),
+            `KRAB`= custom_color_tile('blue','red'),
+            `Similar`= icon_formatter()
+            )
+)
+```
+
+
+## How many of this regions remain significant?
+```{r, echo=T}
+library(knitr)
+kable(table(VPR_results$fdr < 0.05&VPR_results$estimate>0))
+```
+
+
+```{r, echo=T}
+kable(table(VPR_results$fdr < 0.01))
+```
+So approximately 67% of the regions remain signifcant.
+
+## How many of this significant regions are singletons?
+
+
+```{r}
+#adding region metadata to the results of the line model. These results might not include the single bin regions. 
+meta_VPR_results <- left_join(regions,VPR_results,by=c('name'='Gene')) %>%
+  mutate(no_bins=str_count(bins,'PHOX2B'))
+meta_KRAB_results <- left_join(regions,KRAB_results,by=c('name'='Gene')) %>%
+  mutate(no_bins=str_count(bins,'PHOX2B'))
+#Finding significant singletons (defined as regions with one bin with more than 1 guide)
+kable(table(meta_VPR_results$fdr<0.05 & meta_VPR_results$no_bins==1))
+#Writing out REGION information and scores
+#add metadata to the results
+data_Regions <- right_join(VPR_results,regions,c('Gene'='name'))
+#get rid of unnecessary effect
+data_Regions <- dplyr::select(data_Regions,-effect)
+#adding region to colnames to be able to track the values when merging
+colnames(data_Regions)<- paste('Region',colnames(data_Regions),sep='_')
+# merging bin results with bins metadata
+coords_VPR_window_results <- full_join(VPR_window_results,bins_only)
+#adding bin to colnames to be able to track the value when merging
+colnames(coords_VPR_window_results)<- paste('Bin',colnames(coords_VPR_window_results),sep='_')
+#merging regions and VPR_w_bin results by bin and chr (to avoid duplication of chr column)
+full_results <- full_join(data_Regions,coords_VPR_window_results,by=c('Region_BINS'='Bin_bin','Region_Chr'='Bin_Chr'))
+# informative column names
+colnames(full_results)<-c('Region_name','Region_pvalue','Region_fdr','Region_slope','Chr','Region_start','Region_end','Bins_in_region','Bin','Bin_slope','Bin_pvalue','Bin_fdr','Bin_speed','Bin_start','Bin_end')
+#writing region only results
+write_delim(data_Regions,'regions_results.txt',col_names = TRUE)
+#writing region and bin results
+write_delim(full_results,'regions_bins_results.txt',col_names = TRUE)
+
+###REGIOMN_BIN_GUIDE_RESULTS
+#adding VPR_guide results to the region+bin results
+region_bin_guide_Results <- left_join(full_results,VPR_guide_results,by=c('Bin'='BIN','Chr'='chromosome'))
+#informative column names
+correct_colnames_full <- c(colnames(region_bin_guide_Results)[1:15],'guide_start','guide_end','strand','guide_sequence','guide_replicate','guide_name','guide_logfold','guide_pvalue','giude_classification','guide_fdr')
+colnames(region_bin_guide_Results)<- correct_colnames_full
+# writing out regions+bin+guides results
+write_delim(region_bin_guide_Results,'regions_bins_guides_results.txt',delim = '\t',col_names = T)
+```
+
+```{r}
+source('~/Documents/MLM/classify_hits.R')
+time_data <- data.frame('label'=c(0,5,20,29,33),'early'=c(F,T,T,T,T),'late'=c(F,F,T,T,T))
+
+classify_hits <- function(input,time_table){
+    input%>%
+    add_replicate()%>%
+    log_norm()%>%
+    slim()%>%
+    add_time(time_table)%>%
+    ungroup()%>%
+    gene_nest()%>%
+    time_model_testing()%>%
+    dplyr::select(Gene,classification)
+}
+
+#VPR_speed <- classify_hits(full_VPR_Dataset,time_data)
+#KRAB_speed <- classify_hits(full_KRAB_Dataset,time_data)
+
+
+```
+
+
+## What do these regions look like?
+
+```{r}
+## Report Plotting Test
+library(rtracklayer)
+library(AnnotationHub)
+library(Gviz)
+library(Rsamtools)
+library(biomaRt)
+
+ATAC<- import.bw('~/Documents/Phox2b/bigwigs/SH-SY5Y_ATAC_inhouse.steric38.hg38.bw')
+PHOX2B<-import.bw ('~/Documents/Phox2b/bigwigs/GSM2664369_CLBGA.PHOX2B.rep1.wig.bw')
+GATA3<- import.bw('~/Documents/Phox2b/bigwigs/GSM2664370_CLBGA.GATA3.rep1.wig.bw')
+HAND2<- import.bw('~/Documents/Phox2b/bigwigs/GSM2664371_CLBGA.HAND2.rep1.wig.bw')
+H3K27AC<- import.bw('~/Documents/Phox2b/bigwigs/SH-SY5Y_H3K27ac_boeva2017.hg38.bw')
+
+
+###DATA TRACK per guide
+## regions for visualization purposes adding single guided bins in the visualization to avoid annotation problems
+regions_gviz <- regions %>% 
+  dplyr::select(Chr,start,end,name) %>%
+  distinct() %>%
+  full_join(VPR_results,by=c('name'='Gene'))%>%
+  replace_na(list(pvalue=1,fdr=1,effect='fixed',estimate=0))
+regions_gviz_k <- regions %>% 
+  dplyr::select(Chr,start,end,name) %>%
+  distinct() %>%
+  full_join(KRAB_results,by=c('name'='Gene'))%>%
+  replace_na(list(pvalue=1,fdr=1,effect='fixed',estimate=0))
+
+info <- Seqinfo(seqname='chr4',genome='hg38')
+annot <- makeGRangesFromDataFrame(regions_gviz[-944,],seqinfo = info)
+chr <- as.character(unique(seqnames(annot)))
+gen <- genome(annot)
+gtrack <- GenomeAxisTrack()
+itrack <- IdeogramTrack(genome=gen, chromosome = chr)
+biomart <- useMart(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+geneTrack <- BiomartGeneRegionTrack(chromosome=chr,genome=gen,biomart=biomart,name='GeneTrack',background.title='black')
+# regions
+scores <- -log10(regions_gviz$fdr)[-944]
+significant <- as.numeric(regions_gviz$fdr < 0.05)[-944]
+coeffs <- regions_gviz$estimate[-944]
+# bins
+#VPR_windows <- dplyr::select(VPR_window_results,)
+VPR_selected_window_results <- left_join(bins_only,VPR_window_results,by='bin')
+annot2 <- makeGRangesFromDataFrame(dplyr::select(VPR_selected_window_results,bin,Chr,start,end))
+scores_bins <- -log10(VPR_selected_window_results$fdr)
+coeffs_bins <- VPR_selected_window_results$coeff
+significant_bins <- as.numeric(VPR_selected_window_results$fdr<0.05)
+
+#==== colors =====
+cold_colors <- c('#204051',
+      '#3B6978',
+      '#84A9AC',
+      '#5F6769')
+
+### Plot
+dataTrack <- DataTrack(range = annot,
+                                   data = coeffs,
+                                   name = "region",
+                                   ylim = c(-0.04,0.04),
+                                   type = "heatmap",
+                                   gradient = c('#6B8993FF','white','#E7695DFF'),
+                                   background.title='black')
+dataTrack2 <- DataTrack(range = annot,
+                                   data = significant,
+                                   name = "regions",
+                                   #ylim = c(0,7),
+                                   type = "heatmap",
+                                   gradient = c('white','black'),
+                                   background.title='black')
+dataTrack3 <- DataTrack(range = annot2,
+                                   data = coeffs_bins,
+                                   name = "bins",
+                                   ylim = c(-0.04,0.04),
+                                   type = "heatmap",
+                                   gradient = c('blue','white','red'),
+                                   background.title='grey')
+dataTrack4 <- DataTrack(range = annot2,
+                                   data = significant_bins,
+                                   name = "bins",
+                                   #ylim = c(-0.04,0.04),
+                                   type = "heatmap",
+                                   gradient = c('white','black'),
+                                   background.title='grey')
+
+ATACtrack<- DataTrack(range = ATAC,
+                      name = '        ATAC',
+                      type = 'histogram',
+                      col.histogram = cold_colors[1],
+                      fill.histogram = cold_colors[1],
+                      background.title = cold_colors[1])
+PHOX2Btrack<- DataTrack(range = PHOX2B,
+                      name = '           PHOX2B',
+                      type = 'histogram',
+                      col.histogram = cold_colors[3],
+                      fill.histogram = cold_colors[3],
+                      background.title = cold_colors[3])
+GATA3track<- DataTrack(range = GATA3,
+                      name = '        GATA3',
+                      type = 'histogram',
+                      col.histogram = cold_colors[3],
+                      fill.histogram = cold_colors[3],
+                      background.title =cold_colors[3])
+HAND2track<- DataTrack(range = HAND2,
+                       name = '          HAND2',
+                       type = 'histogram',
+                       col.histogram = cold_colors[4],
+                       fill.histogram = cold_colors[4],
+                       background.title = cold_colors[4])
+H3K27ACtrack<- DataTrack(range = H3K27AC,
+                       name = '             H3K27AC',
+                       type = 'histogram',
+                       col.histogram = cold_colors[2],
+                       fill.histogram = cold_colors[2],
+                       background.title = cold_colors[2])
+
+#plotTracks(list(itrack,dataTrack,dataTrack2,dataTrack3,dataTrack4,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,geneTrack), transcriptAnnotation = "symbol",collapseTranscripts="longest",from=40749315,to=42748835,legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 1.5)
+
+# plotTracks(list(itrack,dataTrack,dataTrack2,dataTrack3,dataTrack4,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,geneTrack), transcriptAnnotation = "symbol",collapseTranscripts="longest",from=41703246,to=41794845,legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 1.5)
+```
+
+```{r}
+#Distance plot VPR
+df <- regions_gviz %>%
+  mutate('score'=-log10(fdr))%>%
+  mutate('color'=ifelse(fdr<0.05,ifelse(estimate<0,'#6B8993FF','#E7695DFF'),'#D2D2D2FF'))%>%
+  mutate('sig'=as.numeric(fdr<0.05))%>%
+  drop_na('name')
+# dataTrack_ns <- DataTrack(range = annot[df$color=='#D2D2D2FF'],
+#             data = log(df$score[df$color=='#D2D2D2FF']),
+#             name = "        VPR",
+#             type = "p",
+#             ylim = c(0,6),
+#             col = '#D2D2D2FF',
+#             background.title='black')
+# dataTrack_down <- DataTrack(range = annot[df$color=='#6B8993FF'],
+#             data = log(df$score[df$color=='#6B8993FF']),
+#             name = "        VPR",
+#             ylim = c(0,6),
+#             type = "p",
+#             col = '#6B8993FF',
+#             background.title='black')
+# dataTrack_up <- DataTrack(range = annot[df$color=='#E7695DFF'],
+#             data = log(df$score[df$color=='#E7695DFF']),
+#             name = "        VPR",
+#             ylim = c(0,6),
+#             type = "p",
+#             col = '#E7695DFF',
+#             background.title='black')
+# dataTrack <- OverlayTrack(trackList = list(dataTrack_ns,dataTrack_down,dataTrack_up),background.title='#e76f3d')
+dataTrack <- DataTrack(range = annot,
+                                   data = df$estimate,
+                                   name = "    VPR",
+                                   ylim = c(-0.04,0.04),
+                                   type = "heatmap",
+                                   gradient = c('#6B8993FF','white','#E7695DFF'),
+                                   background.title='#e76f3d')
+dataTrack2 <- DataTrack(range = annot,
+                                   data = df$score,
+                                   name = "    VPR",
+                                   ylim = c(0,60),
+                                   type = "heatmap",
+                                   gradient = c('white','black'),
+                                   background.title='#e76f3d')
+#KRAB
+#Distance plot KRAB
+df_k <- regions_gviz_k %>%
+  mutate('score'=-log10(fdr))%>%
+  mutate('color'=ifelse(fdr<0.05,ifelse(estimate<0,'#6B8993FF','#E7695DFF'),'#D2D2D2FF'))%>%
+  drop_na('name')
+# dataTrack_ns_k <- DataTrack(range = annot[df_k$color=='#D2D2D2FF'],
+#             data = log(df_k$score[df_k$color=='#D2D2D2FF']),
+#             name = "        KRAB",
+#             type = "p",
+#             ylim = c(0,6),
+#             col = '#D2D2D2FF',
+#             background.title='black')
+# dataTrack_down_k <- DataTrack(range = annot[df_k$color=='#6B8993FF'],
+#             data = log(df_k$score[df_k$color=='#6B8993FF']),
+#             name = "        KRAB",
+#             ylim = c(0,6),
+#             type = "p",
+#             col = '#6B8993FF',
+#             background.title='black')
+# dataTrack_up_k <- DataTrack(range = annot[df_k$color=='#E7695DFF'],
+#             data = log(df_k$score[df_k$color=='#E7695DFF']),
+#             name = "        KRAB",
+#             ylim = c(0,6),
+#             type = "p",
+#             col = '#E7695DFF',
+#             background.title='black')
+# dataTrack_k <- OverlayTrack(trackList = list(dataTrack_ns_k,dataTrack_down_k,dataTrack_up_k),background.title='#00a7c7')
+dataTrack_k <- DataTrack(range = annot,
+                                   data = df_k$estimate,
+                                   name = "    KRAB",
+                                   ylim = c(-0.04,0.04),
+                                   type = "heatmap",
+                                   gradient = c('#6B8993FF','white','#E7695DFF'),
+                                   background.title='#00a7c7')
+dataTrack2_k <- DataTrack(range = annot,
+                                   data = df_k$score,
+                                   name = "    KRAB",
+                                   ylim = c(0,60),
+                                   type = "heatmap",
+                                   gradient = c('white','black'),
+                                   background.title='#00a7c7')
+#mini scale
+dataTrack_ns_k_s <- DataTrack(range = annot[df_k$color=='#D2D2D2FF'],
+            data = df_k$score[df_k$color=='#D2D2D2FF'],
+            name = "        KRAB",
+            type = "p",
+            ylim = c(0,3),
+            col = '#D2D2D2FF',
+            background.title='black')
+dataTrack_down_k_s <- DataTrack(range = annot[df_k$color=='#6B8993FF'],
+            data = df_k$score[df_k$color=='#6B8993FF'],
+            name = "        KRAB",
+            ylim = c(0,3),
+            type = "p",
+            col = '#6B8993FF',
+            background.title='black')
+dataTrack_up_k_s <- DataTrack(range = annot[df_k$color=='#E7695DFF'],
+            data = df_k$score[df_k$color=='#E7695DFF'],
+            name = "        KRAB",
+            ylim = c(0,3),
+            type = "p",
+            col = '#E7695DFF',
+            background.title='black')
+dataTrack_k_s <- OverlayTrack(trackList = list(dataTrack_ns_k,dataTrack_down_k,dataTrack_up_k),background.title='#00a7c7')
+# additional data
+geneTrack <- BiomartGeneRegionTrack(chromosome=chr,
+                                    genome=gen,
+                                    biomart=biomart,
+                                    name='GeneTrack',
+                                    background.title='black',
+                                    start = 40749815, end = 42748835,
+                                    col.line = NULL,
+                                    col = NULL,
+                                    transcriptAnnotation = "symbol",
+                                    collapseTranscripts="longest")
+
+sup_df <- data.frame('start'=c(41681648,41320748),'width'=c(213253,326103))
+
+superenhancer <- AnnotationTrack(start = sup_df$start, 
+                                 width = sup_df$width,
+                                 chromosome = chr,
+                                 strand = rep("*",2) ,
+                                 group = c("Enh1", "Enh2"),
+                                 genome = gen, name = "Boeva",
+                                 background.title='#7C0A02',
+                                 color = '#7C0A02')
+feature(superenhancer) <- c('Boeva')
+hl_phox <- HighlightTrack(geneTrack,start = 41746346, width = 5399, chromosome = chr)
+
+# plotTracks(list(gtrack,dataTrack,geneTrack),transcriptAnnotation = "symbol",from = 40749815, to = 42748835, collapseTranscripts="longest", col.line = NULL)
+pdf('~/Desktop/both_constructs_distance_score.pdf',width = 10, height = 5)
+#Whole TAD
+plotTracks(list(dataTrack,dataTrack2,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,superenhancer,hl_phox),from = 40749815, to = 42748835, sizes = c(2,2,1,1,1,1,1,1,2),groupAnnotation = 'group',Boeva='#7C0A02',legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 2)
+plotTracks(list(dataTrack_k_s,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,superenhancer,hl_phox),from = 40749815, to = 42748835, sizes = c(4,1,1,1,1,1,1,2),groupAnnotation = 'group',Boeva='#7C0A02',legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 2)
+plotTracks(list(dataTrack,dataTrack_k,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,superenhancer,hl_phox),from = 40749815, to = 42748835, sizes = c(4,4,1,1,1,1,1,1,2),groupAnnotation = 'group',Boeva='#7C0A02',legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 2)
+dev.off()
+```
+
+```{r}
+#Promoter region
+df <- VPR_bin_results %>%
+  mutate('score'=-log10(fdr))%>%
+  mutate('color'=ifelse(fdr<0.05,ifelse(coeff<0,'#6B8993FF','#E7695DFF'),'#D2D2D2FF'))%>%
+  mutate('sig'=as.numeric(fdr<0.05))
+annot <- makeGRangesFromDataFrame(VPR_bin_results,seqinfo = info,start.field = 'start.bin',end.field = 'end.bin',seqnames.field = 'Chr.bin')
+dataTrack <- DataTrack(range = annot,
+                                   data = df$coeff,
+                                   name = "    VPR",
+                                   ylim = c(-0.04,0.04),
+                                   type = "heatmap",
+                                   gradient = c('#6B8993FF','white','#E7695DFF'),
+                                   background.title='#e76f3d')
+dataTrack2 <- DataTrack(range = annot,
+                                   data = df$score,
+                                   name = "    VPR",
+                                   ylim = c(0,8),
+                                   type = "heatmap",
+                                   gradient = c('white','black'),
+                                   background.title='#e76f3d')
+#KRAB
+df_k <- KRAB_bin_results %>%
+  mutate('score'=-log10(fdr))%>%
+  mutate('color'=ifelse(fdr<0.05,ifelse(coeff<0,'#6B8993FF','#E7695DFF'),'#D2D2D2FF'))%>%
+  mutate('sig'=as.numeric(fdr<0.05))
+dataTrack_k <- DataTrack(range = annot,
+                                   data = df_k$coeff,
+                                   name = "    KRAB",
+                                   ylim = c(-0.04,0.04),
+                                   type = "heatmap",
+                                   gradient = c('#6B8993FF','white','#E7695DFF'),
+                                   background.title='#00a7c7')
+dataTrack2_k <- DataTrack(range = annot,
+                                   data = df_k$score,
+                                   name = "    KRAB",
+                                   ylim = c(0,8),
+                                   type = "heatmap",
+                                   gradient = c('white','black'),
+                                   background.title='#00a7c7')
+#dataTrack_k <- OverlayTrack(trackList = list(dataTrack_ns_k,dataTrack_down_k,dataTrack_up_k),background.title='#00a7c7')
+pdf('~/Desktop/both_constructs_distance_score_promoter.pdf', width = 10, height = 5)
+plotTracks(list(dataTrack,dataTrack2,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,superenhancer,hl_phox),from = 41734346, to = 41763745, sizes = c(2,2,1,1,1,1,1,1,2),groupAnnotation = 'group',Boeva='#7C0A02',legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 2)
+plotTracks(list(dataTrack_k,dataTrack2_k,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,superenhancer,hl_phox),from = 41734346, to = 41763745, sizes = c(2,2,1,1,1,1,1,1,2),groupAnnotation = 'group',Boeva='#7C0A02',legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 2)
+plotTracks(list(dataTrack,dataTrack2,dataTrack_k,dataTrack2_k,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,superenhancer,hl_phox),from = 41734346, to = 41763745, sizes = c(2,2,2,2,1,1,1,1,1,1,2),groupAnnotation = 'group',Boeva='#7C0A02',legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 2)
+dev.off()
+```
+
+# Mageck benchmarking
+
+```{r}
+#loading mageck results
+vpr_mageck_results <- read_delim('mageck/vpr.gene_summary.txt',col_names = T, delim = '\t')
+#classifying reagions by directionality and significance for both tools
+vpr_mageck_results <- dplyr::arrange(vpr_mageck_results,id) %>% mutate('Result'=ifelse(`neg|p-value`<0.05,'Depleater',ifelse(`pos|p-value`<0.05,'Enricher','NS')))
+#Switching to bonferroni for guide selection 
+regions_gviz <-  regions_gviz %>% mutate('Bonferroni'=p.adjust(pvalue,method='bonferroni')) %>%
+  mutate('Results'=ifelse(fdr<0.01,ifelse(estimate>0,'Enricher','Depleater'),'NS'))
+#arrange by name to be able to merge with mageck results whithout issues
+VPR_results_sorted <- dplyr::arrange(regions_gviz,name)
+
+#figuring the similarity in results betwee both tools for all regions
+congruency <- data.frame('Region'=VPR_results_sorted$name,'mageck'=vpr_mageck_results$Result,'mlm'=VPR_results_sorted$Results) %>% mutate('similar'=mageck==mlm)
+#table(congruency$similar)
+#figuring the similarity in results betwee both tools for top 200  regions
+#sig_conguency <- filter(congruency,Region%in%top_200_regions$Gene)
+#table(sig_conguency$similar)
+eye<-(dplyr::filter(congruency,!similar))
+```
+
+After this I took the built regions and ran it though MaGeCK. This tool has been used by us before and is very popoular for CRISPR analysis. The grouping variable continues to be region.
+From mageck we see that out of the 943 regions, MaGeCK found `r sum(vpr_mageck_results$Result!='NS')` significant vs the `r sum(VPR_results$Results!='NS')`. 
+
+Took a look at how much do both tools match in ther assessment of a region being significant or not. With the following results `r table(congruency$similar)`.
+
+So out of the 943 regions they agree on `r sum(congruency$similar)`. And 70 regions where we found no agreement made it into our selection. These can be eliminated if we found ourselves in the need to reduce guide numbers even further.
+ 
+```{r}
+#classifying results
+VPR_results_sorted <-  mutate(VPR_results_sorted,'Results'=ifelse(Bonferroni<0.05,ifelse(estimate>0,'Enricher','Depleater'),'NS'))
+#figuring the similarity in results between both tools for all regions
+congruency <- data.frame('Region'=VPR_results_sorted$name,'mageck'=vpr_mageck_results$Result,'mlm'=VPR_results_sorted$Results) %>% mutate('similar'=mageck==mlm)
+#table(congruency$similar)
+#figuring the similarity in results betwee both tools for top 200  regions
+#sig_conguency <- filter(congruency,Region%in%top_200_regions$Gene)
+#table(sig_conguency$similar)
+eye<-(dplyr::filter(congruency,!similar))
+```
+
+Because of this I decided to switch to Bonferroni method of p value adjustment which brought the number of significant regions down to `r sum(VPR_results$Results!='NS')`. These regions are the same as those originally in our top 200. 
+
+## What do these new regions look like?
+
+```{r}
+###DATA TRACK per guide
+#joining metadata with bin results == coords_VPR_window_results, figure out if I can substitute
+VPR_selected_window_results <- left_join(bins_only,VPR_window_results,by='bin')
+info <- Seqinfo(seqname='chr4',genome='hg38')
+annot <- makeGRangesFromDataFrame(raw_regions,seqinfo = info)
+VPR_windows <- dplyr::select(VPR_window_results,)
+annot2 <- makeGRangesFromDataFrame(dplyr::select(VPR_selected_window_results,bin,Chr,start,end))
+chr <- as.character(unique(seqnames(annot)))
+gen <- genome(annot)
+gtrack <- GenomeAxisTrack()
+itrack <- IdeogramTrack(genome=gen, chromosome = chr)
+biomart <- useMart("ensembl",dataset="hsapiens_gene_ensembl")
+geneTrack <- BiomartGeneRegionTrack(start=40748895,end=42749067,chromosome='chr4',genome=gen,biomart=biomart,name='GeneTrack',background.title='black')
+scores <- -log10(regions_gviz$Bonferroni)[-944]
+significant <- as.numeric(regions_gviz$Bonferroni<0.05)[-944]
+coeffs <- regions_gviz$estimate[-944]
+scores_bins <- -log10(VPR_selected_window_results$fdr)
+coeffs_bins <- VPR_selected_window_results$coeff
+significant_bins <- as.numeric(VPR_selected_window_results$fdr<0.05)
+### Plot
+dataTrack <- DataTrack(range = annot,
+                                   data = coeffs,
+                                   name = "region",
+                                   ylim = c(-0.04,0.04),
+                                   type = "heatmap",
+                                   gradient = c('blue','white','red'),
+                                   background.title='black')
+dataTrack2 <- DataTrack(range = annot,
+                                   data = significant,
+                                   name = "regions",
+                                   ylim = c(0,1),
+                                   type = "heatmap",
+                                   gradient = c('white','black'),
+                                   background.title='black')
+dataTrack3 <- DataTrack(range = annot2,
+                                   data = coeffs_bins,
+                                   name = "bins",
+                                   ylim = c(-0.04,0.04),
+                                   type = "heatmap",
+                                   gradient = c('blue','white','red'),
+                                   background.title='grey')
+dataTrack4 <- DataTrack(range = annot2,
+                                   data = significant_bins,
+                                   name = "bins",
+                                   #ylim = c(-0.04,0.04),
+                                   type = "heatmap",
+                                   gradient = c('white','black'),
+                                   background.title='grey')
+
+#plotTracks(list(itrack,dataTrack,dataTrack2,dataTrack3,dataTrack4,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,geneTrack), transcriptAnnotation = "symbol",collapseTranscripts="longest",from=40749139,to=42748835,legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 1.5)
+
+# plotTracks(list(itrack,dataTrack,dataTrack2,dataTrack3,dataTrack4,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,geneTrack), transcriptAnnotation = "symbol",collapseTranscripts="longest",from=41703246,to=41794845,legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 1.5)
+
+# plotTracks(list(itrack,dataTrack,dataTrack2,dataTrack3,dataTrack4,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,geneTrack), transcriptAnnotation = "symbol",collapseTranscripts="longest",from=41742311,to=41754152,legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 1.5)
+```
+
+So I went forward using only those 238 regions.
+
+## What do the significant ones look like? {.tabset}
+```{r, results='asis'}
+plot_example <- function(gene,df){
+  plot_df<- df%>%add_replicate()%>%log_norm()%>%slim()%>%mutate(Time=as.ordered(Time))
+  filter(plot_df,Gene==gene)%>%
+    group_by(Replicate)%>%
+    mutate(Counts=scale(Counts))%>%
+    ggplot(aes(Time,Counts,group=Replicate,col=Replicate))+
+    geom_line()+
+    ylim(-1.5,1.5)
+}
+significant_regions <- meta_VPR_results %>% dplyr::filter(fdr<0.05)
+random_significants <- sample_n(significant_regions,20)
+random_significant_names <- random_significants$name
+# for(i in 1:20){
+#   cat("### ",random_significant_names[i],"\n")
+#   plotTracks(list(itrack,dataTrack,dataTrack2,dataTrack3,dataTrack4,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,geneTrack), transcriptAnnotation = "symbol",collapseTranscripts="longest",from=(random_significants$start[i]-500),to=(random_significants$end[i]+500),legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 1.5)
+#   print(plot_example(random_significant_names[i],full_VPR_Dataset))
+#   cat('\n\n')
+# }
+```
+
+
+## What do the ones that lost significance look like? {.tabset}
+```{r, results='asis'}
+not_significant_regions <- meta_VPR_results %>% dplyr::filter(fdr>0.05)
+random_not_significants <- sample_n(not_significant_regions,20)
+random_not_significants_names <- random_not_significants$name
+# for(i in 1:20){
+#   cat("### ",random_not_significants_names[i],"\n")
+#   plotTracks(list(itrack,dataTrack,dataTrack2,dataTrack3,dataTrack4,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,geneTrack), transcriptAnnotation = "symbol",collapseTranscripts="longest",from=(random_not_significants$start[i]-500),to=(random_not_significants$end[i]+500),legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 1.5)
+#    print(plot_example(random_not_significants_names[i],full_VPR_Dataset))
+#   cat('\n\n')
+# }
+```
+
+## Selecting the top 200
+For selecting the top guides the following happens:
+1. Figuring out how many bins are withing the region = n
+2. Filtering the bins that are not significant out
+3. Selecting top n remaining guides based on their enrichment score
+
+```{r}
+#loading full bin/guide results
+meta_VPR_results <- left_join(regions,VPR_results,by=c('name'='Gene')) %>%
+  mutate(no_bins=str_count(bins,'PHOX2B'))
+
+#finding the top 200 regions
+top_200_regions <- VPR_results %>% mutate(score=-log10(fdr)) %>% top_n(200,score)
+#generating a table with all results
+full_results <- left_join(filter(meta_VPR_results,name%in%top_200_regions$Gene),left_join(VPR_window_results,VPR_guide_results,by=c('bin'='BIN'),suffix=c('.bin','.guide')),by=c('BINS'='bin'),suffix=c('.region','.bin')) 
+#finding number of bins within region, filtering guides, and fitering bins
+full_Results <- full_results %>% mutate(no_bins=str_count(bins,'PHOX2B')) %>%
+  filter(fdr<0.05)%>%
+  filter(fdr.bin<0.05)
+regions_with_length <- dplyr::select(full_Results,name,no_bins)%>%distinct()
+#function to retrieve the best guide
+get_best_guides <- function(regionName,nbins ){
+  filter(full_Results,name==regionName)%>%
+    top_n(nbins,abs(logfold))
+}
+best_guide_region <- regions_with_length %>% mutate(best_guides=map2(name,no_bins,get_best_guides)) %>%
+unnest() %>%
+dplyr::select(-name1,-no_bins1)
+best_guide_region <- mutate(best_guide_region,'sign_match'=sign(estimate)==sign(logfold)) %>% filter(sign_match)
+```
+
+With this selection we would have `r nrow(best_guide_region)` for 200 regions. 
+
+### Selected guides examples{.tabset}
+
+```{r, results='asis'}
+# getting results for the guides in the best_guide_region_df
+selected_guides <- filter(VPR_guide_results,NAME%in%best_guide_region$NAME) %>% 
+# generating a start
+  mutate('start'=as.numeric(str_split_fixed(NAME,'\\.',3)[,2])) %>% 
+# generating a generic end. Not 100% sure this is the best way
+  mutate('end'=start+20) %>% 
+# making sure they have a chr field with chr4
+  mutate('Chr'=rep('chr4',1088))
+# sampling some guides (10) for visualization purposes
+best_guides_names <- sample_n(best_guide_region,10)
+annot3 <- makeGRangesFromDataFrame(dplyr::select(selected_guides,NAME,Chr,start,end))
+dataTrack5 <- DataTrack(range = annot3,
+                                   data = selected_guides$logfold,
+                                   name = "guides",
+                                   ylim = c(-6 , 6),
+                                   type = "heatmap",
+                                   gradient = c('blue','white','red'),
+                                   background.title='blue')
+# for(i in 1:10){
+#   cat("#### ",best_guides_names$name[i],"\n")
+#   plotTracks(list(itrack,dataTrack,dataTrack2,dataTrack3,dataTrack4,dataTrack5,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,geneTrack), transcriptAnnotation = "symbol",collapseTranscripts="longest",from=(best_guides_names$start.region[i]-500),to=(best_guides_names$end.region[i]+500),legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 1.5)
+#   cat('\n\n')
+# }
+```
+
+```{r}
+# writing a table for Dusas to be able to see the guides within regions
+dusa_table <- dplyr::select(best_guide_region,name,Chr,start.region,end.region,fdr,estimate,BINS,speed,GUIDE,NAME,logfold,fdr.guide)
+# renaming appropriately 
+colnames(dusa_table) <- c('region_name','Chr','start.region','end.region','fdr.region','logfold.region','bin','speed.bin','guide_sequence','guide_name','logfold.guide','fdr.guide')
+# examination
+head(dusa_table)
+# writing it out
+write_delim(dusa_table,'final_guides.txt',delim='\t',col_names = T)
+```
+
+## Enrichers (according to mageck){.tabset}
+
+Took a closer look at the ernichers for Dusa, and tried to figure out a way to include some of them, after checking the ones included in the original list of regions, we find that only 5 regions are classified as enrichers. 
+
+```{r}
+#figureing out how many and which guides are enriched
+enriched <- dusa_table %>% 
+  mutate(enriched=logfold.region>0) %>%
+  group_by(region_name) %>%
+  summarise('enriched'=unique(enriched)) %>%
+  filter(enriched==T)
+# Finding enrichers for mageck
+enrichers_mageck <- filter(congruency,mageck=='Enricher')
+```
+
+I then saw that `r nrow(enrichers_mageck)` regions were classified as enrichers by mageck. So decided to take a closer look at them to decide if we want to include any of them. 
+
+
+```{r, results='asis'}
+# getting the name of regions that enriched in mageck
+enrichers_mageck_names <- as.character(enrichers_mageck$Region)
+# getting the data of the regions that enriched in mageck
+enrichers_data <- dplyr::filter(meta_VPR_results,name%in%enrichers_mageck$Region)
+#visualization
+# for(i in 1:22){
+#   cat("### ",enrichers_mageck_names[i],"\n")
+#   plotTracks(list(itrack,dataTrack,dataTrack2,dataTrack3,dataTrack4,dataTrack5,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,geneTrack), transcriptAnnotation = "symbol",collapseTranscripts="longest",from=(enrichers_data$start[i]-500),to=(enrichers_data$end[i]+500),legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 1.5)
+#    print(plot_example(enrichers_mageck_names[i],full_VPR_Dataset))
+#   cat('\n\n')
+# }
+```
+
+## Reducing guide numbers
+```{r}
+# finding which guides have more than 5 bins within them, and changing that number to 5 if they do
+regions_with_length_5 <- sapply(regions_with_length$no_bins,function(x) ifelse(x>5,5,x))
+# substituting the number of bins per region
+min_regions_with_length <- dplyr::select(full_Results,name)%>%
+  distinct() %>%
+  add_column('no_bins'=regions_with_length_5)
+# getting the best guides with a maximum of 5 per region to reduce numbers
+best_guide_region <- min_regions_with_length %>%
+  mutate(best_guides=map2(name,no_bins,get_best_guides)) %>%
+  unnest() %>%
+  dplyr::select(-name1,-no_bins1)
+# finding if the direction of the guide matches the direction of the region
+best_guide_region <- mutate(best_guide_region,'sign_match'=sign(estimate)==sign(logfold)) %>% filter(sign_match)
+# counting how many guides we would have 
+nrow(best_guide_region)
+```
+
+## Hand selecting guides{.tabset}
+
+A bit unsure of the utility of this in the end. Need to come back to it. 
+
+```{r, results='asis'}
+#finding regions with more than 5 guides
+extra_guides_regions <- dplyr::filter(regions_with_length,no_bins>5)
+# extracting their name
+extra_guides_regions_name <- extra_guides_regions$name
+# getting the best guides for those regions
+best_guide_region <- extra_guides_regions %>%
+  mutate(best_guides=map2(name,no_bins,get_best_guides)) %>%
+  unnest() %>%
+  dplyr::select(-name1,-no_bins1)
+# figuring out if the guide's direction matches the region direction 
+best_guide_region <- mutate(best_guide_region,'sign_match'=sign(estimate)==sign(logfold)) %>%
+  filter(sign_match)
+# Finding unique regions with these extra guides
+extra_guide_coordenates <- dplyr::select(best_guide_region,Chr,start.region,end.region,bins,name) %>%
+  distinct()
+# for(i in 2:73){
+#   cat("### ",extra_guides_regions_name[i],"\n")
+#   plotTracks(list(itrack,dataTrack,dataTrack2,dataTrack3,dataTrack4,dataTrack5,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,geneTrack), transcriptAnnotation = "symbol",collapseTranscripts="longest",from=(extra_guide_coordenates$start.region[i]-500),to=(extra_guide_coordenates$end.region[i]+500),legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 1.5)
+#   cat('\n\n')
+# }
+```
+
+```{r}
+kable(selected_guides)
+```
+
+## KRAB hits{.tabset}
+
+Took a look at regions that are significant exlusively in KRAB and decided to take a closer look at them too. 
+
+```{r, results='asis'}
+# joining region results of both consturcts
+both_constructs <- full_join(VPR_results,KRAB_results,by='Gene',suffix=c('.VPR','.KRAB'))
+# trasnforming into binary significance per construct
+both_constructs <- both_constructs %>%
+  mutate('VPR'=fdr.VPR<0.05)%>%
+  mutate('KRAB'=fdr.KRAB<0.05)
+#finding regions significant in both and dropping the region less guide NA
+both <- dplyr::filter(both_constructs,VPR&KRAB)%>%
+  drop_na(Gene)
+#adding metadata of the regions significant in both
+annot_both <- right_join(named_regions,both,by=c('name'='Gene'))%>%
+  drop_na(Chr)
+# annotation for visualization purposes
+mini_annot <- makeGRangesFromDataFrame(dplyr::select(annot_both,name,Chr,start,end))
+Data_Track_VPR <- DataTrack(range = mini_annot,
+                  data = both$estimate.VPR,
+                  name = "VPR",
+                  ylim = c(-0.04,0.04),
+                  type = "heatmap",
+                  gradient = c('blue','white','red'),
+                  background.title='firebrick4')
+Data_Track_KRAB <- DataTrack(range = mini_annot,
+                  data = both$estimate.KRAB,
+                  name = "KRAB",
+                  ylim = c(-0.04,0.04),
+                  type = "heatmap",
+                  gradient = c('blue','white','red'),
+                  background.title='dodgerblue4')
+# plotTracks(list(itrack,Data_Track_VPR,Data_Track_KRAB,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,geneTrack), transcriptAnnotation = "symbol",collapseTranscripts="longest",from=40748895,to=42749067,legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 1.5)
+summary_both <- both %>%
+  dplyr::mutate('VPR_results'=ifelse(estimate.VPR<0,'Depleted','Enriched'))%>%
+  dplyr::mutate('KRAB_results'=ifelse(estimate.KRAB<0,'Depleted','Enriched'))%>%
+  dplyr::select(Gene,VPR_results,KRAB_results)
+both_plot <- summary_both %>%
+  pivot_longer(cols=-Gene,names_to = 'Construct',values_to = 'Result') 
+plot_colors <- c('Enriched'='firebrick4','Depleted'='dodgerblue4','TRUE'='darkgreen','FALSE'='white')
+ggplot(both_plot,aes(Construct,Gene,fill=Result))+
+    geom_tile(alpha=0.5)+
+    scale_fill_manual(values=plot_colors)+
+    theme_classic()
+
+#Crosstabulation
+
+ggtable(summary_both,'VPR_results','KRAB_results',title = 'Significant regions in both constructs' )
+test <- as.data.frame(table(summary_both$VPR_results,summary_both$KRAB_results))
+colnames(test) <- c('VPR','KRAB','Freq')
+g <- ggplot(test,aes(VPR,KRAB))+ 
+  geom_point(aes(size = Freq),color = 'grey')+ 
+  theme_classic()+
+  scale_size_continuous(range=c(10,30))+
+  geom_text(aes(label = Freq))+
+  theme(legend.position = 'none',
+        axis.text.x = element_text(size = 12),
+        axis.text.y = element_text(size = 12),  
+        axis.title.x = element_text(size = 18),
+        axis.title.y = element_text(size = 18))
+g
+
+#formattable
+library(formattable)
+summary_both <- both %>%
+  dplyr::mutate('VPR_results'=ifelse(estimate.VPR<0,-1,1))%>%
+  dplyr::mutate('KRAB_results'=ifelse(estimate.KRAB<0,-1,1))%>%
+  mutate('Similar'=(sign(VPR_results)==sign(KRAB_results)))%>%
+  dplyr::select(Gene,VPR_results,KRAB_results,Similar)
+
+
+colnames(summary_both)<-c('Region','VPR','KRAB','Similar')
+
+icon_formatter <- function() {
+    formatter("span", 
+        style = x ~ style(color = ifelse(x, "green", "red")), x ~ icontext(ifelse(x, "ok", "remove"), "")
+    )	 	 
+}	
+custom_color_tile <- function (...) 
+{
+    formatter("span",
+              style = function(x) style(display = "block", 
+                                        padding = "0 4px", 
+                                        `color` = csscolor(gradient(as.numeric(x), ...)), 
+                                        `width` = "200px",
+                                        `border-radius` = "4px", 
+                                        `background-color` = csscolor(gradient(as.numeric(x), 
+                                        ...))))
+}
+
+table <- formattable(summary_both,
+             align =c("l","c","c","c"),list(
+            `VPR`= custom_color_tile('blue','red'),
+            `KRAB`= custom_color_tile('blue','red'),
+            `Similar`= icon_formatter()
+            )
+)
+
+
+```
+
+
+```{r}
+KRAB_exclusive <- dplyr::filter(both_constructs,VPR&KRAB)
+KRAB_exclusive_meta <- dplyr::filter(meta_KRAB_results,name %in% KRAB_exclusive$Gene)
+KRAB_window_results <- readr::read_delim('sliding_window/num_KRAB_pvalues.txt',delim='\t',col_names=c('bin','coeff','pval'))
+KRAB_window_results$fdr<-p.adjust(KRAB_window_results$pval,method='fdr')
+KRAB_selected_window_results <- left_join(bins_only,KRAB_window_results,by='bin')
+regions_krab_gviz <- regions %>% 
+  dplyr::select(Chr,start,end,name) %>%
+  distinct() %>%
+  full_join(KRAB_results,by=c('name'='Gene'))%>%
+  replace_na(list(pvalue=1,fdr=1,effect='fixed',estimate=0))
+scores <- -log10(regions_krab_gviz$fdr)[-911]
+significant <- as.numeric(regions_krab_gviz$fdr<0.05)[-911]
+coeffs <- regions_krab_gviz$estimate[-911]
+scores_bins <- -log10(KRAB_selected_window_results$fdr)
+coeffs_bins <- KRAB_selected_window_results$coeff
+significant_bins <- as.numeric(KRAB_selected_window_results$fdr<0.05)
+### Plot
+dataTrack <- DataTrack(range = annot,
+                                   data = coeffs,
+                                   name = "region",
+                                   ylim = c(-0.04,0.04),
+                                   type = "heatmap",
+                                   gradient = c('blue','white','red'),
+                                   background.title='black')
+dataTrack2 <- DataTrack(range = annot,
+                                   data = significant,
+                                   name = "regions",
+                                   ylim = c(0,1),
+                                   type = "heatmap",
+                                   gradient = c('white','black'),
+                                   background.title='black')
+dataTrack3 <- DataTrack(range = annot2,
+                                   data = coeffs_bins,
+                                   name = "bins",
+                                   ylim = c(-0.04,0.04),
+                                   type = "heatmap",
+                                   gradient = c('blue','white','red'),
+                                   background.title='grey')
+dataTrack4 <- DataTrack(range = annot2,
+                                   data = significant_bins,
+                                   name = "bins",
+                                   #ylim = c(-0.04,0.04),
+                                   type = "heatmap",
+                                   gradient = c('white','black'),
+                                   background.title='grey')
+
+KRAB_exclusive_names <- as.character(unique(KRAB_exclusive$Gene))
+KRAB_coordenates <- dplyr::select(KRAB_exclusive_meta,Chr,start,end,bins,name) %>% distinct()
+# for(i in 1:36){
+#   cat("### ",KRAB_exclusive_names[i],"\n")
+#   plotTracks(list(itrack,dataTrack,dataTrack2,dataTrack3,dataTrack4,dataTrack5,ATACtrack,H3K27ACtrack,PHOX2Btrack,HAND2track,gtrack,geneTrack), transcriptAnnotation = "symbol",collapseTranscripts="longest",from=(KRAB_coordenates$start[i]-500),to=(KRAB_coordenates$end[i]+500),legend=TRUE, cex.title = 0.8, rot.title=1, title.width = 1.5)
+#    print(plot_example(KRAB_exclusive_names[i],full_KRAB_Dataset))
+#   cat('\n\n')
+# }
+```
+## Final Guide Selection
+
+The important bit
+
+```{r}
+library(readxl)
+# I use this variable number too often (need to change that) but here we get the best regions with the length regardless of the 5 bin limit
+best_guide_region <- regions_with_length %>% mutate(best_guides=map2(name,no_bins,get_best_guides)) %>%
+unnest() %>%
+dplyr::select(-name1,-no_bins1)
+#  we check if the direction of the guide matches the direction of ther regions
+best_guide_region <- mutate(best_guide_region,'sign_match'=sign(estimate)==sign(logfold)) %>% filter(sign_match)
+# loading guides hand selected by dusa
+Dusa_selected_guides <- read_xlsx('GB_visualization_gRNAs_selected1(r_y).xlsx') 
+# filtering the best guide region for the hand selected guides
+###########################
+### hand_selected_guides == 'Dusa's hand selected guides'
+###########################
+hand_selected_guides <- filter(best_guide_region,GUIDE%in%Dusa_selected_guides$Guide)
+#  we check if the direction of the guide matches the direction of ther regions
+hand_selected_guides <- mutate(hand_selected_guides,'sign_match'=sign(estimate)==sign(logfold)) 
+# counting how many there were
+nrow(hand_selected_guides)
+# fitlering regions with 5 bins or less
+right_guides_regions <- dplyr::filter(regions_with_length,no_bins<=5)
+# getting their name
+right_guides_regions_name <- right_guides_regions$name
+###########################
+#best_right_size_guide_region =='Best guides for the bins that have 5 bins or less
+###########################
+# getting the best guides for the regions with 5 bins or less
+best_right_size_guide_region <- right_guides_regions %>%
+  mutate(best_guides=map2(name,no_bins,get_best_guides)) %>%
+  unnest() %>%
+  dplyr::select(-name1,-no_bins1)
+#  we check if the direction of the guide matches the direction of ther regions
+best_right_size_guide_region <- mutate(best_right_size_guide_region,'sign_match'=sign(estimate)==sign(logfold)) %>% filter(sign_match)
+# counting how many there were
+nrow(best_right_size_guide_region)
+# merging hand selected with guides from regions (bins<5)
+final_guides_VPR <- rbind(best_right_size_guide_region,hand_selected_guides) 
+# counting them
+nrow(final_guides_VPR)
+# adding the code. All of this guides were for VPR regions that deplete
+final_guides_VPR$CODE <- rep('VPR_depleater',nrow(final_guides_VPR))
+# selecting for useful information.
+final_guides_VPR <- dplyr::select(final_guides_VPR,name,no_bins,Chr,start.region,end.region,pvalue.region,fdr,strand,GUIDE,NAME,logfold,CODE)
+
+####Enrichers####
+# getting the names of regions that enrich according to mageck
+hand_selected_Enrichers <- enrichers_mageck_names
+#hand_selected_Enrichers <- c('Region_392','Region_801','Region_825','Region_93')
+#generating a table with all results, in a bit of a weird way, might try to clean later, first i join window and guide results for VPR, then I join them to a reduced list of regions that are enriching in mageck. 
+enrichers_full_results <- left_join(filter(meta_VPR_results,name%in%hand_selected_Enrichers),left_join(VPR_window_results,VPR_guide_results,by=c('bin'='BIN'),suffix=c('.bin','.guide')),by=c('BINS'='bin'),suffix=c('.region','.bin')) 
+#finding number of bins within region, filtering guides, and fitering bins
+enrichers_full_Results <- enrichers_full_results %>%
+  mutate(no_bins=str_count(bins,'PHOX2B')) %>%
+  filter(fdr<0.05)%>%
+  filter(fdr.bin<0.05)
+#finding the length of the regions in this previous data.frame
+enricher_regions_with_length <- dplyr::select(enrichers_full_Results,name,no_bins)%>%
+  distinct()
+#function to retrieve the best guide
+get_best_guides <- function(regionName,nbins ){
+  filter(enrichers_full_Results,name==regionName)%>%
+    top_n(nbins,abs(logfold))
+}
+# finding the best guides for enricher regions in KRAB
+best_guide_enricher_region <- enricher_regions_with_length %>%
+  mutate(best_guides=map2(name,no_bins,get_best_guides)) %>%
+  unnest() %>%
+  dplyr::select(-name1,-no_bins1)
+# seeing if the directions match again
+best_guide_enricher_region <- mutate(best_guide_enricher_region,'sign_match'=sign(estimate)==sign(logfold)) %>% filter(sign_match)
+# counting how many there are
+nrow(best_guide_enricher_region)
+# adding a code to the region 
+best_guide_enricher_region$CODE <- rep('VPR_enricher',nrow(best_guide_enricher_region))
+# selecting only relevant columns
+###########################
+# best_guide_enricher_region='Best gudies for VPR regions cosnidered enriching by mageck'
+###########################
+best_guide_enricher_region <- dplyr::select(best_guide_enricher_region,name,no_bins,Chr,start.region,end.region,pvalue.region,fdr,strand,GUIDE,NAME,logfold,CODE)
+
+####KRAB-bins######
+hand_selected_KRAB <- both$Gene
+#hand_selected_KRAB <- c('Region_27','Region_148','Region_149','Region_212','Region_254','Region_307','Region_392','Region_479','Region_493','Region_595','Region_658','Region_729','Region_804','Region_826','Region_829')
+#generating a table with all results with regions that were selected as enrichers by mageck.
+KRAB_full_results <- left_join(filter(meta_KRAB_results,name%in%hand_selected_Enrichers),left_join(VPR_window_results,VPR_guide_results,by=c('bin'='BIN'),suffix=c('.bin','.guide')),by=c('BINS'='bin'),suffix=c('.region','.bin')) 
+#finding number of bins within region, filtering guides, and fitering bins
+KRAB_full_Results <- KRAB_full_results %>% mutate(no_bins=str_count(bins,'PHOX2B')) 
+KRAB_regions_with_length <- dplyr::select(KRAB_full_Results,name,no_bins)%>%distinct()
+#function to retrieve the best guide
+get_best_guides <- function(regionName,nbins ){
+  filter(KRAB_full_Results,name==regionName)%>%
+    top_n(nbins,abs(logfold))
+}
+best_guide_KRAB_region <- KRAB_regions_with_length %>% mutate(best_guides=map2(name,no_bins,get_best_guides)) %>%
+unnest() %>%
+dplyr::select(-name1,-no_bins1)
+nrow(best_guide_KRAB_region)
+best_guide_KRAB_region$CODE <- rep('KRAB',nrow(best_guide_KRAB_region))
+best_guide_KRAB_region$Bonferroni <- p.adjust(best_guide_KRAB_region$pvalue.region,method='bonferroni')
+###########################
+# guides that performed best for KRAB in enriching regions
+###########################
+best_guide_KRAB_region <- dplyr::select(best_guide_KRAB_region,name,no_bins,Chr,start.region,end.region,pvalue.region,Bonferroni,strand,GUIDE,NAME,logfold,CODE)
+
+##CONTROLS
+zero_change <- dplyr::filter(VPR_guide_results,logfold==0)
+zero_change_regions <- inner_join(zero_change,full_info,by='GUIDE')
+#are all of this just dropout guides?
+zero_change_counts <- dplyr::filter(VPR_counts,GUIDE%in%zero_change_regions$GUIDE)
+zero_change_lognorm <- log_norm(zero_change_counts)
+#they all have some counts, so they are not dropouts
+negative_control <- dplyr::select(zero_change_regions,name,chromosome,strand,GUIDE,NAME,logfold) 
+negative_control <- negative_control%>%
+  add_column(CODE=rep('NEG-CONTROL',nrow(negative_control)))# %>%
+  #sample_n(50)
+#Dusa selected guides (hand selection by ATAC peaks)
+final_negative_control <- read_delim('targeting_negative_controls_final.txt',delim='\t')
+###NON TARGETTING CONTROLS
+#non_targetting <- read_delim('~/Documents/Phox2b/guides_results.tsv',delim='\t',col_names=F)
+
+
+###KARB
+KRAB_window_results <- readr::read_delim('sliding_window/num_KRAB_pvalues.txt',delim='\t',col_names=c('bin','coeff','pval'))
+KRAB_window_results$fdr <- p.adjust(KRAB_window_results$pval,method='fdr')
+KRAB_sig_bins <- filter(KRAB_window_results,fdr<0.05)
+KRAB_guide_results <- readr::read_delim('~/Documents/Phox2b/KRAB_logfoldchange.txt',delim='\t',col_names=T)
+KRAB_sig_guides <- inner_join(KRAB_guide_results,KRAB_sig_bins,by=c('BIN'='bin')) %>%
+  group_by(BIN)%>%
+  top_n(1,abs(K_33D))%>%
+  ungroup()%>%
+  top_n(60,abs(K_33D))
+KRAB_sig_guides_info <- left_join(KRAB_sig_guides,full_info,by='GUIDE') %>%
+  dplyr::select(NAME,GUIDE,K_33D)
+head(KRAB_sig_guides_info)
+colnames(KRAB_sig_guides_info)<-c('NAME','GUIDE','logfold')
+KRAB_sig_guides_info$CODE <- rep('KRAB_BINS',nrow(KRAB_sig_guides_info))
+
+
+ALL_GUIDES <- bind_rows(final_guides_VPR,best_guide_enricher_region,best_guide_KRAB_region)
+nrow(ALL_GUIDES)
+ALL_GUIDES <- bind_rows(ALL_GUIDES,KRAB_sig_guides_info)
+ALL_GUIDES <- bind_rows(ALL_GUIDES,final_negative_control)
+table(ALL_GUIDES$CODE)
+nrow(ALL_GUIDES)
+#write_delim(ALL_GUIDES,'FINAL_guides_coded.txt',delim = '\t')
+```
+
+
