@@ -16,8 +16,8 @@ library(tidyverse)
 library(knitr)
 library(broom.mixed)
 #loading raw region data.
-raw_regions <- readr::read_delim('regions/merged_windowed_500.bed',delim='\t',col_names=c('Chr','start','end','bins'))
-regions <- readr::read_delim('regions/merged_windowed_500.bed',delim='\t',col_names=c('Chr','start','end','bins'))
+raw_regions <- readr::read_delim('region_generation/merged_windowed_500.bed',delim='\t',col_names=c('Chr','start','end','bins'))
+regions <- readr::read_delim('region_generation/merged_windowed_500.bed',delim='\t',col_names=c('Chr','start','end','bins'))
 named_regions <- dplyr::mutate(regions,name=paste('Region',seq(1,nrow(regions),1),sep = '_'))
 regions <- dplyr::mutate(regions,name=paste('Region',seq(1,nrow(regions),1),sep = '_')) %>%
   dplyr::mutate(BINS=str_split(bins,pattern = ','))%>%
@@ -27,7 +27,7 @@ regions <- dplyr::mutate(regions,name=paste('Region',seq(1,nrow(regions),1),sep 
 
 #new bin coordenates
 bc <- read_lines('design_bin_coords.txt')
-VPR_window_results <- readr::read_delim('sliding_window/num_VPR_pvalues.txt',delim='\t',col_names=c('bin','coeff','pval'))
+VPR_window_results <- readr::read_delim('bin_analysis/num_VPR_pvalues.txt',delim='\t',col_names=c('bin','coeff','pval'))
 rep_bc <- str_replace(bc,'-',':')
 split_bc <- str_split_fixed(rep_bc,':',3)
 bins_only <- data.frame('Chr'=split_bc[,1],'start'=split_bc[,2],'end'=split_bc[,3])
@@ -38,29 +38,29 @@ head(bins_only)
 ###########################
 #VPR_bin_results_full <- readr::read_delim('~/Documents/Phox2b/merged/VPR_full_results.txt',delim='\t',col_names=c('Chr','start','end','bin','pvalue','fdr','estimate'))
 #bins_only <- dplyr::select(VPR_bin_results_full,Chr,start,end,bin)
-VPR_window_results <- readr::read_delim('sliding_window/num_VPR_pvalues.txt',delim='\t',col_names=c('bin','coeff','pval'))
-VPR_window_speed <- readr::read_delim('sliding_window/speed_VPR_pvalues.txt',delim='\t',col_names=T)
+VPR_window_results <- readr::read_delim('bin_analysis/num_VPR_pvalues.txt',delim='\t',col_names=c('bin','coeff','pval'))
+VPR_window_speed <- readr::read_delim('bin_analysis/speed_VPR_pvalues.txt',delim='\t',col_names=T)
 colnames(VPR_window_speed) <- 'speed'
 VPR_window_results$fdr <- p.adjust(VPR_window_results$pval,method='fdr')
 VPR_window_results$speed <- VPR_window_speed$speed
 VPR_bin_results <- full_join(regions,left_join(bins_only,VPR_window_results,by='bin'),by=c('BINS'='bin'),suffix=c('.region','.bin')) %>%
   mutate(no_bins=str_count(bins,'PHOX2B'))
 #loading guide results from NHT
-VPR_guide_results <- readr::read_delim('~/Documents/Phox2b/FINAL/VPR_guide_results.txt',delim='\t',col_names=T)
+VPR_guide_results <- readr::read_delim('VPR_guide_results.txt',delim='\t',col_names=T)
 ###############################################################
 ###############################################################
 #loading bin results from the MLM (KRAB)
 #KRAB_bin_results_full <- readr::read_delim('~/Documents/Phox2b/merged/VPR_full_results.txt',delim='\t',col_names=c('Chr','start','end','bin','pvalue','fdr','estimate'))
 #bins_only <- dplyr::select(KRAB_bin_results_full,Chr,start,end,bin)
-KRAB_window_results <- readr::read_delim('sliding_window/num_KRAB_pvalues.txt',delim='\t',col_names=c('bin','coeff','pval'))
-KRAB_window_speed <- readr::read_delim('sliding_window/speed_KRAB_pvalues.txt',delim='\t',col_names=T)
+KRAB_window_results <- readr::read_delim('bin_analysis/num_KRAB_pvalues.txt',delim='\t',col_names=c('bin','coeff','pval'))
+KRAB_window_speed <- readr::read_delim('bin_analysis/speed_KRAB_pvalues.txt',delim='\t',col_names=T)
 colnames(KRAB_window_speed) <- 'speed'
 KRAB_window_results$fdr <- p.adjust(KRAB_window_results$pval,method='fdr')
 KRAB_window_results$speed <- KRAB_window_speed$speed
 KRAB_bin_results <- full_join(regions,left_join(bins_only,KRAB_window_results,by='bin'),by=c('BINS'='bin'),suffix=c('.region','.bin')) %>%
   mutate(no_bins=str_count(bins,'PHOX2B'))
 #loading guide results from NHT
-KRAB_guide_results <- readr::read_delim('~/Documents/Phox2b/FINAL/KRAB_guide_results.txt',delim='\t',col_names=T)
+KRAB_guide_results <- readr::read_delim('KRAB_guide_results.txt',delim='\t',col_names=T)
 ###############################################################
 ```
 
@@ -89,7 +89,9 @@ full_VPR_Dataset <- left_join(full_info,VPR,by='GUIDE') %>% dplyr::select(-BINS)
 full_KRAB_Dataset <- left_join(full_info,KRAB,by='GUIDE') %>% dplyr::select(-BINS)
 
 #loading mlm functions
-source('~/Documents/MLM/find_hits.R')
+source('MLM/find_hits.R')
+source('MLM/log_norm.R')
+source('MLM/slim.R')
 
 #renaming the columns to help the function work better
 colnames(full_KRAB_Dataset)[1] <- 'Gene'
@@ -574,20 +576,20 @@ write_delim(region_bin_guide_Results,'regions_bins_guides_results.txt',delim = '
 ```
 
 ```{r}
-source('~/Documents/MLM/classify_hits.R')
-time_data <- data.frame('label'=c(0,5,20,29,33),'early'=c(F,T,T,T,T),'late'=c(F,F,T,T,T))
-
-classify_hits <- function(input,time_table){
-    input%>%
-    add_replicate()%>%
-    log_norm()%>%
-    slim()%>%
-    add_time(time_table)%>%
-    ungroup()%>%
-    gene_nest()%>%
-    time_model_testing()%>%
-    dplyr::select(Gene,classification)
-}
+# source('~/Documents/MLM/classify_hits.R')
+# time_data <- data.frame('label'=c(0,5,20,29,33),'early'=c(F,T,T,T,T),'late'=c(F,F,T,T,T))
+# 
+# classify_hits <- function(input,time_table){
+#     input%>%
+#     add_replicate()%>%
+#     log_norm()%>%
+#     slim()%>%
+#     add_time(time_table)%>%
+#     ungroup()%>%
+#     gene_nest()%>%
+#     time_model_testing()%>%
+#     dplyr::select(Gene,classification)
+# }
 
 #VPR_speed <- classify_hits(full_VPR_Dataset,time_data)
 #KRAB_speed <- classify_hits(full_KRAB_Dataset,time_data)
@@ -1486,8 +1488,8 @@ final_negative_control <- read_delim('targeting_negative_controls_final.txt',del
 #non_targetting <- read_delim('~/Documents/Phox2b/guides_results.tsv',delim='\t',col_names=F)
 
 
-###KARB
-KRAB_window_results <- readr::read_delim('sliding_window/num_KRAB_pvalues.txt',delim='\t',col_names=c('bin','coeff','pval'))
+###KRAB
+KRAB_window_results <- readr::read_delim('bin_analysis/num_KRAB_pvalues.txt',delim='\t',col_names=c('bin','coeff','pval'))
 KRAB_window_results$fdr <- p.adjust(KRAB_window_results$pval,method='fdr')
 KRAB_sig_bins <- filter(KRAB_window_results,fdr<0.05)
 KRAB_guide_results <- readr::read_delim('~/Documents/Phox2b/KRAB_logfoldchange.txt',delim='\t',col_names=T)
