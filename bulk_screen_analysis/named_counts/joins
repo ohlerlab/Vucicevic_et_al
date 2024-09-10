@@ -1,0 +1,3 @@
+#!/bin/bash
+join -t , Maxi* KRAB*5-1* | join -t , - KRAB*5-2* | join -t , - KRAB*20* | join -t , - KRAB*29-1* | join -t , - KRAB*29-2* | join -t , - KRAB*33-1* | join -t , - KRAB*33-2* > KRAB_table.txt
+join -t , Maxi* VPR*5-1* | join -t , - VPR*5-2* | join -t , - VPR*20* | join -t , - VPR*29-1* | join -t , - VPR*29-2* | join -t , - VPR*33-1* | join -t , - VPR*33-2* > VPR_table.txt
