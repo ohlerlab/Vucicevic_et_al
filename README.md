@@ -52,7 +52,7 @@ Data generated for this study are accessible at GEO under accession numbers: GSE
         
         **track_plots.R**: The script uses Gviz to create various DataTrack objects for different genomic features and combines them into plots. The plots are saved as PDF files, showing different genomic features and their significance. Region information is visualized as a dotplot.
 
-    ### **new_guide_selection_visualization.Rmd**
+    ### new_guide_selection_visualization.Rmd
 
         File performs the following tasks:
 
@@ -70,32 +70,32 @@ Data generated for this study are accessible at GEO under accession numbers: GSE
         
         7. Output: Saves the final selection of guides and results to files for further use.
 
-    Output files:
+        Output files:
         
-        MaGeCK Input Files:
+            MaGeCK Input Files:
         
-            1. `mageck/input_mageck_vpr.txt`
+                1. `mageck/input_mageck_vpr.txt`
         
-            2. `mageck/input_mageck_krab.txt`
+                2. `mageck/input_mageck_krab.txt`
         
-        Region and Bin Results:
+            Region and Bin Results:
         
-            1. `regions_results.txt`
+                1. `regions_results.txt`
         
-            2. `regions_bins_results.txt`
+                2. `regions_bins_results.txt`
         
-            3. `regions_bins_guides_results.txt`
+                3. `regions_bins_guides_results.txt`
         
-        Files to be used with scripts in visualizations
+            Files to be used with scripts in visualizations
         
-            1. `visualization/VPR_guide_results_plot.csv`
+                1. `visualization/VPR_guide_results_plot.csv`
         
-            2. `visualization/KRAB_guide_results_plot.csv`
+                2. `visualization/KRAB_guide_results_plot.csv`
         
-            3. `visualization/VPR_window_results_plot.csv`
+                3. `visualization/VPR_window_results_plot.csv`
         
-            4. `visualization/KRAB_window_results_plot.csv`
+                4. `visualization/KRAB_window_results_plot.csv`
         
-            5. `visualization/VPR_region_results_plot.csv`
+                5. `visualization/VPR_region_results_plot.csv`
         
-            6. `visualization/KRAB_region_results_plot.csv`
+                6. `visualization/KRAB_region_results_plot.csv`
