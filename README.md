@@ -52,7 +52,7 @@ Data generated for this study are accessible at GEO under accession numbers: GSE
         
         **track_plots.R**: The script uses Gviz to create various DataTrack objects for different genomic features and combines them into plots. The plots are saved as PDF files, showing different genomic features and their significance. Region information is visualized as a dotplot.
 
-    **new_guide_selection_visualization.Rmd**
+    ### **new_guide_selection_visualization.Rmd**
 
         File performs the following tasks:
 
