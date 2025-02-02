@@ -3,6 +3,28 @@
 # Author: Lorena Sofia Lopez Zepeda``
 # Version: 2021-11-21
 
+# 
+# This script performs the following tasks:
+# 
+# 1. Load necessary libraries and set working directory.
+# 2. Load various datasets for VPR and KRAB constructs, including guides, windows, bins, and regions.
+# 3. Define plotting functions and themes for visualizations.
+# 4. Generate volcano plots for VPR and KRAB regions, windows, and guides.
+# 5. Create cross-tabulation plots for regions, windows, and guides.
+# 6. Identify and plot shared bins and guides between VPR and KRAB constructs.
+# 7. Save all generated plots to PDF files.
+# 
+# The script uses the following libraries:
+# - tidyverse: for data manipulation and plotting.
+# - GGally: for creating cross-tabulation plots.
+# 
+# The script generates the following output files:
+# - region_images.pdf: contains plots for VPR and KRAB regions.
+# - window_images.pdf: contains plots for VPR and KRAB windows.
+# - significant_bins_both.pdf: contains plots for shared bins between VPR and KRAB constructs.
+# - guide_images.pdf: contains plots for VPR and KRAB guides.
+# - significant_GUIDE.pdf: contains plots for shared guides between VPR and KRAB constructs.
+
 # Packages
 library(tidyverse)
 

@@ -1,6 +1,22 @@
+
 # ============================================================================
 # Track plots
 # ============================================================================
+
+# This script generates heatmap track plots for visualizing genomic data.
+# It uses various libraries including tidyverse, rtracklayer, AnnotationHub, Gviz, Rsamtools, and biomaRt.
+# The script is divided into several sections:
+# 1. Loading results: Reads in various CSV and TXT files containing genomic data.
+# 2. Colors: Defines color schemes for the plots.
+# 3. Annotation tracks: Imports bigwig files and creates DataTrack objects for different genomic features.
+# 4. Fixed parameters: Sets up fixed parameters like genome information and annotation tracks.
+# 5. Regions: Processes and visualizes data for genomic regions.
+# 6. Windows: Processes and visualizes data for genomic windows.
+# 7. Single bins: Processes and visualizes data for single bins.
+# 8. Actual plots: Generates and saves the final plots as PDF files.
+
+# The script uses Gviz to create various DataTrack objects for different genomic features and combines them into plots.
+# The plots are saved as PDF files, showing different genomic features and their significance.
 
 ## Report Plotting Test
 library(tidyverse)
@@ -306,7 +322,7 @@ dataTrack_bins_sig_k <- DataTrack(range = annot_bins,
 # Actual plots
 # ============================================================================
 # plotTracks(list(gtrack,dataTrack,geneTrack),transcriptAnnotation = "symbol",from = 40749815, to = 42748835, collapseTranscripts="longest", col.line = NULL)
-pdf("VPR_KRAB_heatmaps_separeate.pdf", width = 10, height = 6)
+pdf("VPR_KRAB_heatmaps_separate.pdf", width = 10, height = 6)
 # Whole TAD
 #plotTracks(list(dataTrack_regions, dataTrack_regions_sig, dataTrack_regions_k, dataTrack_regions_sig_k, dataTrack_windows, dataTrack_windows_sig, dataTrack_windows_k, dataTrack_windows_sig_k, dataTrack_bins, dataTrack_bins_sig, dataTrack_bins_k, dataTrack_bins_sig_k, ATACtrack, H3K27ACtrack, PHOX2Btrack, HAND2track, gtrack, superenhancer,geneTrack), from = 40749815, to = 42748835, sizes = c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2), groupAnnotation = "group", Boeva = "#7C0A02", legend = TRUE, cex.title = 0.8, rot.title = 1, title.width = 2)
 plotTracks(list(dataTrack_regions, dataTrack_regions_sig,dataTrack_windows, dataTrack_windows_sig,dataTrack_bins, dataTrack_bins_sig, ATACtrack, H3K27ACtrack, PHOX2Btrack, HAND2track, gtrack, superenhancer, hl_phox), from = 40749815, to = 42748835, sizes = c(1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,2), groupAnnotation = "group", Boeva = "#7C0A02", transcriptAnnotation = "symbol",legend = TRUE, cex.title = 0.5, rot.title = 1,collapseTranscripts=TRUE, title.width = 2)

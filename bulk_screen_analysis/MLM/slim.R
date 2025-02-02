@@ -5,8 +5,13 @@
 #' @param log_normed_df is a data.frame that has been normalized and log2 transformed by the log_norm function.
 #' @return slim_df long form data.frame with single column for all Time-points.
 #' @export
-slim <- function(log_normed_df) {
-  tidyr::pivot_longer(log_normed_df, cols = -c(sgRNA, Gene), names_to = "Group", values_to = "Counts") %>%
-    dplyr::mutate("Replicate" = stringr::str_split_fixed(Group, "-", 2)[, 1]) %>%
-    dplyr::mutate("Time" = as.numeric(stringr::str_split_fixed(Group, "_", 2)[, 2]))
+slim <- function(log_normed_df, replicates=FALSE) {
+  if (replicates==T) {
+    tidyr::pivot_longer(log_normed_df, cols = -c(sgRNA, Gene), names_to = "Group", values_to = "Counts") %>%
+      dplyr::mutate("Replicate" = stringr::str_split_fixed(Group, "-", 2)[, 1]) %>%
+      dplyr::mutate("Time" = as.numeric(stringr::str_split_fixed(Group, "_", 2)[, 2]))
+  }else{
+      tidyr::pivot_longer(log_normed_df, cols = -c(sgRNA, Gene), names_to = "Group", values_to = "Counts") %>%
+      dplyr::mutate("Time" = as.numeric(stringr::str_split_fixed(Group, "_", 2)[, 2]))
+  }
 }

@@ -94,41 +94,41 @@ coded_KRAB_df$CODE <- as.factor(coded_KRAB_df$CODE)
 coded_KRAB_df = coded_KRAB_df %>% mutate_if(is.factor,
                       fct_explicit_na,
                       na_level = "missing")
-# #str(coded_KRAB_df)
-# library(parallel)
-# no_core <- 8 
-# cl <- makeCluster(no_core, type="FORK")
-# pvals_guide <- parLapply(cl,names(w_bins),function(bin){
-# #pvals_guide <- lapply(names(w_bins)[8408:8508],function(bin){
-#   df <- filter(coded_KRAB_df,BIN %in% w_bins[[bin]])
-#   #df <- filter(coded_VPR_df,BIN == bin)
-#   LM.mixed = lmer(LogCounts ~ Time  + (1|CODE),data=df, REML=F)
-#   LM.null = lmer(LogCounts ~  (1|CODE),data=df, REML=F)
-#   A=anova(LM.null,LM.mixed)
-#   #print(bin)
-#   results <- data.frame('BIN'=bin, 'coeff'=summary(LM.mixed)$coefficients[2,1], 'pvalue'=A$`Pr(>Chisq)`[2])
-#   #return(A$`Pr(>Chisq)`[2])
-#   return(results)
-# })
-# stopCluster(cl)
-# results <-ldply (pvals_guide, data.frame) 
-# write.table(results,"num_KRAB_pvalues.txt",sep = "\t",row.names = FALSE,col.names = FALSE,quote = FALSE)
-#EARLY VS LATE
-
-results_time <- coded_KRAB_df %>%
-  mutate(timeearly = Time%in%c('5'),timelate = Time %in% c('20','29','33'))
+#str(coded_KRAB_df)
+library(parallel)
 no_core <- 8 
 cl <- makeCluster(no_core, type="FORK")
-speed_bin <- parLapply(cl,names(w_bins),function(bin){
-  df <- filter(results_time,BIN %in% w_bins[[bin]])
-  LM.mixed_both = lmer(LogCounts ~ timeearly + timelate + (1|CODE),data = df,REML=F)
-  LM.mixed_early = lmer(LogCounts ~ timeearly  + (1|CODE),data = df,REML=F)
-  LM.mixed_late = lmer(LogCounts ~ timelate + (1|CODE),data = df,REML=F)
-  early_genes = (anova(LM.mixed_both,LM.mixed_late)$`Pr(>Chisq)`[2])<0.05
-  late_genes = (anova(LM.mixed_both,LM.mixed_early)$`Pr(>Chisq)`[2])<0.05
-  results<-ifelse(early_genes&late_genes,'early',ifelse(early_genes,'early',ifelse(late_genes,'late','stable')))
+pvals_guide <- parLapply(cl,names(w_bins),function(bin){
+#pvals_guide <- lapply(names(w_bins)[8408:8508],function(bin){
+  df <- filter(coded_KRAB_df,BIN %in% w_bins[[bin]])
+  #df <- filter(coded_VPR_df,BIN == bin)
+  LM.mixed = lmer(LogCounts ~ Time  + (1|CODE),data=df, REML=F)
+  LM.null = lmer(LogCounts ~  (1|CODE),data=df, REML=F)
+  A=anova(LM.null,LM.mixed)
+  #print(bin)
+  results <- data.frame('BIN'=bin, 'coeff'=summary(LM.mixed)$coefficients[2,1], 'pvalue'=A$`Pr(>Chisq)`[2])
+  #return(A$`Pr(>Chisq)`[2])
   return(results)
 })
+stopCluster(cl)
+results <-ldply (pvals_guide, data.frame) 
+write.table(results,"num_KRAB_pvalues.txt",sep = "\t",row.names = FALSE,col.names = FALSE,quote = FALSE)
+#EARLY VS LATE
+
+# results_time <- coded_KRAB_df %>%
+#   mutate(timeearly = Time%in%c('5'),timelate = Time %in% c('20','29','33'))
+# no_core <- 8 
+# cl <- makeCluster(no_core, type="FORK")
+# speed_bin <- parLapply(cl,names(w_bins),function(bin){
+#   df <- filter(results_time,BIN %in% w_bins[[bin]])
+#   LM.mixed_both = lmer(LogCounts ~ timeearly + timelate + (1|CODE),data = df,REML=F)
+#   LM.mixed_early = lmer(LogCounts ~ timeearly  + (1|CODE),data = df,REML=F)
+#   LM.mixed_late = lmer(LogCounts ~ timelate + (1|CODE),data = df,REML=F)
+#   early_genes = (anova(LM.mixed_both,LM.mixed_late)$`Pr(>Chisq)`[2])<0.05
+#   late_genes = (anova(LM.mixed_both,LM.mixed_early)$`Pr(>Chisq)`[2])<0.05
+#   results<-ifelse(early_genes&late_genes,'early',ifelse(early_genes,'early',ifelse(late_genes,'late','stable')))
+#   return(results)
+# })
 stopCluster(cl)
 results_speed <- ldply(speed_bin,data.frame)
 write.table(results_speed,'speed_KRAB_pvalues.txt',sep = "\t",row.names = F,col.names = T,quote = FALSE)

@@ -1,6 +1,27 @@
 # ============================================================================
 # Track plots
 # ============================================================================
+# This script generates track plots for visualizing genomic data.
+# It uses various R libraries including tidyverse, rtracklayer, AnnotationHub, Gviz, Rsamtools, and biomaRt.
+# The script includes the following sections:
+# 
+# 1. Loading required libraries
+# 2. Defining color schemes
+# 3. Setting working directory
+# 4. Loading results from CSV files
+# 5. Importing annotation tracks from BigWig files
+# 6. Creating DataTrack objects for visualization
+# 7. Defining fixed parameters for genomic visualization
+# 8. Loading and processing regions data
+# 9. Creating DataTrack objects for VPR and KRAB constructs
+# 10. Plotting the tracks and saving the plots as PDF files
+# 
+# The script generates two main plots:
+# 1. A plot showing the distance score for both VPR and KRAB constructs across a specified genomic region.
+# 2. A plot showing the promoter region with bins for both VPR and KRAB constructs.
+# 
+# The plots include various annotation tracks such as ATAC-seq, H3K27ac, PHOX2B, HAND2, and superenhancers.
+# The final plots are saved as PDF files in the specified working directory.
 
 ## Report Plotting Test
 library(tidyverse)
@@ -18,9 +39,9 @@ cold_colors <- c(
   "#009966"
 )
 my_colors_tracks <- c("#013766", "white", "#ac0e28")
-names(my_colors_tracks)<-c('down','nc','up')
+names(my_colors_tracks) <- c("down", "nc", "up")
 
-#==== parameters =====
+# ==== parameters =====
 setwd("~/Documents/Phox2b/PAPER/visualization/")
 # ============================================================================
 # Loading results
@@ -126,32 +147,38 @@ df <- regions_gviz %>%
 
 annot <- makeGRangesFromDataFrame(regions_gviz[-944, ], seqinfo = info)
 
-dataTrack_ns <- DataTrack(range = annot,
-                          data = df$score*sign(df$estimate),
-                          name = "        VPR",
-                          type = "hist",
-                          ylim = c(-60,10),
-                          col.histogram = '#D2D2D2FF',
-                          fill.histogram = '#D2D2D2FF')
+dataTrack_ns <- DataTrack(
+  range = annot,
+  data = df$score * sign(df$estimate),
+  name = "        VPR",
+  type = "hist",
+  ylim = c(-60, 10),
+  col.histogram = "#D2D2D2FF",
+  fill.histogram = "#D2D2D2FF"
+)
 
-dataTrack_down <- DataTrack(range = annot[df$color=='#1683D0'],
-                            data = -df$score[df$color=='#1683D0'],
-                            name = "        VPR",
-                            ylim = c(-60,10),
-                            type = "hist",
-                            col.histogram = '#1683D0',
-                            fill.histogram = '#1683D0')
+dataTrack_down <- DataTrack(
+  range = annot[df$color == "#1683D0"],
+  data = -df$score[df$color == "#1683D0"],
+  name = "        VPR",
+  ylim = c(-60, 10),
+  type = "hist",
+  col.histogram = "#1683D0",
+  fill.histogram = "#1683D0"
+)
 
-dataTrack_up <- DataTrack(range = annot[df$color=='#d60000'],
-                          data = df$score[df$color=='#d60000'],
-                          name = "        VPR",
-                          ylim = c(-60,10),
-                          type = "hist",
-                          col.histogram = '#d60000',
-                          fill.histogram = '#d60000')
+dataTrack_up <- DataTrack(
+  range = annot[df$color == "#d60000"],
+  data = df$score[df$color == "#d60000"],
+  name = "        VPR",
+  ylim = c(-60, 10),
+  type = "hist",
+  col.histogram = "#d60000",
+  fill.histogram = "#d60000"
+)
 
-#dataTrack <- OverlayTrack(trackList = list(dataTrack_down,dataTrack_up),background.title='#e76f3d')
-dataTrack <- OverlayTrack(trackList = list(dataTrack_ns,dataTrack_down,dataTrack_up),background.title='#e76f3d')
+# dataTrack <- OverlayTrack(trackList = list(dataTrack_down,dataTrack_up),background.title='#e76f3d')
+dataTrack <- OverlayTrack(trackList = list(dataTrack_ns, dataTrack_down, dataTrack_up), background.title = "#e76f3d")
 
 # KRAB
 # Distance plot KRAB
@@ -160,42 +187,49 @@ df_k <- regions_gviz_k %>%
   mutate("color" = ifelse(fdr < 0.05, ifelse(estimate < 0, "#1683D0", "#d60000"), "#D2D2D2FF")) %>%
   drop_na("name")
 
-dataTrack_ns_k <- DataTrack(range = annot,
-                            data = df_k$score*sign(df$estimate),
-                            name = "        KRAB",
-                            type = "hist",
-                            ylim = c(-60,10),
-                            col.histogram = '#D2D2D2FF',
-                            fill.histogram = '#D2D2D2FF')
+dataTrack_ns_k <- DataTrack(
+  range = annot,
+  data = df_k$score * sign(df$estimate),
+  name = "        KRAB",
+  type = "hist",
+  ylim = c(-60, 10),
+  col.histogram = "#D2D2D2FF",
+  fill.histogram = "#D2D2D2FF"
+)
 
-dataTrack_down_k <- DataTrack(range = annot[df_k$color=='#1683D0'],
-                              data = -df_k$score[df_k$color=='#1683D0'],
-                              name = "        KRAB",
-                              ylim = c(-60,10),
-                              type = "hist",
-                              col.histogram = '#1683D0',
-                              fill.histogram = '#1683D0')
+dataTrack_down_k <- DataTrack(
+  range = annot[df_k$color == "#1683D0"],
+  data = -df_k$score[df_k$color == "#1683D0"],
+  name = "        KRAB",
+  ylim = c(-60, 10),
+  type = "hist",
+  col.histogram = "#1683D0",
+  fill.histogram = "#1683D0"
+)
 
-dataTrack_up_k <- DataTrack(range = annot[df_k$color=='#d60000'],
-                            data = df_k$score[df_k$color=='#d60000'],
-                            name = "        KRAB",
-                            ylim = c(-60,10),
-                            type = "hist",
-                            col.histogram = '#d60000',
-                            fill.histogram = '#d60000')
+dataTrack_up_k <- DataTrack(
+  range = annot[df_k$color == "#d60000"],
+  data = df_k$score[df_k$color == "#d60000"],
+  name = "        KRAB",
+  ylim = c(-60, 10),
+  type = "hist",
+  col.histogram = "#d60000",
+  fill.histogram = "#d60000"
+)
 
-#dataTrack_k <- OverlayTrack(trackList = list(dataTrack_down_k,dataTrack_up_k),background.title='#1683D0')
-dataTrack_k <- OverlayTrack(trackList = list(dataTrack_ns_k,dataTrack_down_k,dataTrack_up_k),background.title='#1683D0')
+# dataTrack_k <- OverlayTrack(trackList = list(dataTrack_down_k,dataTrack_up_k),background.title='#1683D0')
+dataTrack_k <- OverlayTrack(trackList = list(dataTrack_ns_k, dataTrack_down_k, dataTrack_up_k), background.title = "#1683D0")
 
-#mini scale
+# mini scale
 dataTrack_ns_k_s <- DataTrack(
   range = annot,
-  data = df_k$score*df$estimate,
+  data = df_k$score * df$estimate,
   name = "        KRAB",
   ylim = c(0, 3),
   type = "hist",
-  col.histogram = '#d60000',
-  fill.histogram = '#d60000')
+  col.histogram = "#d60000",
+  fill.histogram = "#d60000"
+)
 
 dataTrack_down_k_s <- DataTrack(
   range = annot[df_k$color == "#1683D0"],
@@ -203,8 +237,9 @@ dataTrack_down_k_s <- DataTrack(
   name = "        KRAB",
   ylim = c(0, 3),
   type = "hist",
-  col.histogram= "#1683D0",
-  fill.histogram= "#1683D0")
+  col.histogram = "#1683D0",
+  fill.histogram = "#1683D0"
+)
 
 dataTrack_up_k_s <- DataTrack(
   range = annot[df_k$color == "#d60000"],
@@ -213,7 +248,8 @@ dataTrack_up_k_s <- DataTrack(
   ylim = c(0, 3),
   type = "hist",
   col.histogram = "#d60000",
-  fill.histogram = "#d60000")
+  fill.histogram = "#d60000"
+)
 
 dataTrack_k_s <- OverlayTrack(trackList = list(dataTrack_ns_k, dataTrack_down_k, dataTrack_up_k), background.title = "#168fd0")
 # additional data
@@ -258,37 +294,43 @@ dev.off()
 df <- VPR_bin_results %>%
   mutate("score" = -log10(fdr)) %>%
   mutate("color" = ifelse(fdr < 0.05, ifelse(coeff < 0, "#1683D0", "#d60000"), "#D2D2D2FF")) %>%
-  mutate("sig" = as.numeric(fdr < 0.05))%>%
+  mutate("sig" = as.numeric(fdr < 0.05)) %>%
   filter(!is.na(fdr))
 annot <- makeGRangesFromDataFrame(df, seqinfo = info, start.field = "start.bin", end.field = "end.bin", seqnames.field = "Chr.bin")
 
-#==== VPR =====
-dataTrack_ns <- DataTrack(range = annot,
-                          data = df$score*sign(df$coeff),
-                          name = "        VPR",
-                          type = "hist",
-                          ylim = c(-8,8),
-                          col.histogram = '#D2D2D2FF',
-                          fill.histogram = '#D2D2D2FF')
+# ==== VPR =====
+dataTrack_ns <- DataTrack(
+  range = annot,
+  data = df$score * sign(df$coeff),
+  name = "        VPR",
+  type = "hist",
+  ylim = c(-8, 8),
+  col.histogram = "#D2D2D2FF",
+  fill.histogram = "#D2D2D2FF"
+)
 
-dataTrack_down <- DataTrack(range = annot[df$color=='#1683D0'],
-                            data = -df$score[df$color=='#1683D0'],
-                            name = "        VPR",
-                            ylim = c(-8,8),
-                            type = "hist",
-                            col.histogram = '#1683D0',
-                            fill.histogram = '#1683D0')
+dataTrack_down <- DataTrack(
+  range = annot[df$color == "#1683D0"],
+  data = -df$score[df$color == "#1683D0"],
+  name = "        VPR",
+  ylim = c(-8, 8),
+  type = "hist",
+  col.histogram = "#1683D0",
+  fill.histogram = "#1683D0"
+)
 
-dataTrack_up <- DataTrack(range = annot[df$color=='#d60000'],
-                          data = df$score[df$color=='#d60000'],
-                          name = "        VPR",
-                          ylim = c(-8,8),
-                          type = "hist",
-                          col.histogram = '#d60000',
-                          fill.histogram = '#d60000')
+dataTrack_up <- DataTrack(
+  range = annot[df$color == "#d60000"],
+  data = df$score[df$color == "#d60000"],
+  name = "        VPR",
+  ylim = c(-8, 8),
+  type = "hist",
+  col.histogram = "#d60000",
+  fill.histogram = "#d60000"
+)
 
-#dataTrack <- OverlayTrack(trackList = list( dataTrack_down,dataTrack_up),background.title='#e76f3d')
-dataTrack <- OverlayTrack(trackList = list(dataTrack_ns, dataTrack_down,dataTrack_up),background.title='#e76f3d')
+# dataTrack <- OverlayTrack(trackList = list( dataTrack_down,dataTrack_up),background.title='#e76f3d')
+dataTrack <- OverlayTrack(trackList = list(dataTrack_ns, dataTrack_down, dataTrack_up), background.title = "#e76f3d")
 
 # KRAB
 df_k <- KRAB_bin_results %>%
