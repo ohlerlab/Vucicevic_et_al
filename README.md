@@ -100,4 +100,6 @@ Data generated for this study are accessible at GEO under accession numbers: GSE
         
                 6. `visualization/KRAB_region_results_plot.csv`
   
-## TESLA-seq data alaysis
+## TESLA-seq data analysis 
+- Please reach out to Che-Wei Hsu, Ph.D. (Duke University/Caltech) for questions regarding the analysis)
+  
