@@ -101,5 +101,19 @@ Data generated for this study are accessible at GEO under accession numbers: GSE
                 6. `visualization/KRAB_region_results_plot.csv`
   
 ## TESLA-seq data analysis 
-- Please reach out to Che-Wei Hsu, Ph.D. (Duke University/Caltech) for questions regarding the analysis)
+- Please reach out to Che-Wei Hsu, Ph.D. (Duke University/Caltech) for questions regarding the analysis
+
+  ### In the TESLA-seq folder
+
+        You can find three Jupyter notebooks documenting the codes of analysis, one R-script validating the numbers reported in the paper, and necessary input data and supplementary files to reproduce our results:
+
+        1. Jupyter notebook named "Rhapsody-202210_batch_correct-Normalize_respectively-SCT_var_regress_updated_in_Feb_2025" documents most of the analysis, including preprocessing, normalization, quality checks, gRNA calling, DE and plotting.
+        
+        2. Jupyter notebook named "Rhapsody_Random_Forest_All_features_top_vs_bottom_50_wo_GC-20230216" documents the code for random forest model and logistic regression.
+        
+        3. Jupyter notebook named "Rhapsody_Sushi-Region" documents the code for plotting one of the figures in the paper.
+        
+        4. R-script named "Validate_numbers_in_manuscript" provides example of how to access our processed data and query for numbers or information reported in the paper.
+        
+    
   
