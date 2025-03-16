@@ -3,9 +3,10 @@
 This folder contains all scripts necessary to perform analysis on CRISPRi and CRISPRa screens.
 
 1. `/tab` contains all metadata for sgRNAs and bins for the targeted chromosomal region.
-2. `/bin_analysis` contains the scripts used to perform linear mixed model analysis on VPR and KRAB datasets. It reads guide and code information, normalizes the data, and calculates p-values for each bin using parallel processing.
-3. `/region_generation` contains scripts used to identify significant bins from the previous step, as well as a bash script to merge overlapping or nearby intervals in a BED file.
-4. `/visualization` includes scripts used for most of the plots produced by the bulk screen analysis.
+2. `/MLM` contains all functions necessary to run the MLM 
+3. `/bin_analysis` contains the scripts used to perform linear mixed model analysis on VPR and KRAB datasets. It reads guide and code information, normalizes the data, and calculates p-values for each bin using parallel processing.
+4. `/region_generation` contains scripts used to identify significant bins from the previous step, as well as a bash script to merge overlapping or nearby intervals in a BED file.
+5. `/visualization` includes scripts used for most of the plots produced by the bulk screen analysis.
 
 After identifying significant bins and merging regions, most descriptive and exploratory analyses are performed in `new_guide_selection_visualization.Rmd`. In this file we score each of the CaRE, output final results as well as intermediate files used for plotting scripts in the `/visualization` folder
 
