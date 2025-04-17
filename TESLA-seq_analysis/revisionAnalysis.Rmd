@@ -1,0 +1,1041 @@
+
+---
+title: "revisionAnalysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+.libPaths(c("/home/slacadie/.guix-profile/site-library"))
+`%notin%` <- Negate(`%in%`)
+library(tidyr)
+library(dplyr)
+library(RColorBrewer)
+```
+
+
+```{bash}
+cp /fast/AG_Ohler/Lorena/CRISPR_phox2b/PAPER/*guide_results.txt ./
+perl -lane 'next if $_ =~ /tart/;print "$F[0]\t$F[1]\t$F[2]\t$F[7]\t$F[11]\t$F[8]";' KRAB_guide_results.txt > KRAB_guide_results.bed
+perl -lane 'next if $_ =~ /tart/;print "$F[10]\t$F[11]\t$F[12]\t$F[9]\t$F[4]";' aafInt800regionsMinFdr.txt > aafInt800regionsMinFdr.bed
+bedtools closest -d -t "first" -a <(bedtools sort -i KRAB_guide_results.bed) -b <(bedtools sort -i ../mergedNbAllPeaks.bed) > KRAB_guide_results_closest.mergedNbAllPeaks.txt
+bedtools closest -d -t "first" -a <(bedtools sort -i KRAB_guide_results.bed) -b <(bedtools sort -i ../mergedNbAtac_hg38.bed) > KRAB_guide_results_closest.mergedNbAtac.txt
+```
+
+```{r}
+vpr = read.csv("/fast/AG_Ohler/Lorena/CRISPR_phox2b/PAPER/VPR_guide_results.txt", header=T, sep="\t")
+krab = read.csv("/fast/AG_Ohler/Lorena/CRISPR_phox2b/PAPER/KRAB_guide_results.txt", header=T, sep="\t")
+library(ggplot2)
+pdf("vprKrabHexbinFdr.pdf")
+fdrData = data.frame("vpr" = vpr$fdr,"krab"=krab$fdr)
+ggplot(fdrData, aes(x=-log10(vpr), y=-log10(krab))) + geom_hex() + theme_minimal()
+dev.off()
+logfoldData = data.frame("vpr"=vpr$logfold, "krab"=krab$logfold)
+pdf("vprKrabHexbinLfc.pdf")
+ggplot(logfoldData, aes(x=vpr, y=krab)) + geom_hex() + theme_minimal()
+dev.off()
+
+krabRegionsGithub = read.csv("lorenaFromGithub/KRAB_regions_results_plot.csv", header=T, sep=",")
+vprRegionsGithub = read.csv("lorenaFromGithub/VPR_regions_results_plot.csv", header=T, sep=",")
+fdrRegionData = data.frame("vpr" = vprRegionsGithub$fdr,"krab"=krabRegionsGithub$fdr)
+estimateData = data.frame("vpr" = vprRegionsGithub$estimate,"krab"=krabRegionsGithub$estimate)
+
+pdf("vprKrabRegionHexbinFdr.pdf")
+ggplot(fdrRegionData, aes(x=-log10(vpr), y=-log10(krab))) + geom_hex() + theme_minimal()
+dev.off()
+
+pdf("vprKrabRegionHexbinEstimate.pdf")
+ggplot(estimateData, aes(x=vpr, y=krab)) + geom_hex() + theme_minimal()
+dev.off()
+
+load("../data.RData")
+write.table(aafInt800regionsMinFdr, file="aafInt800regionsMinFdr.txt", quote=F, sep="\t", col.names=T, row.names=F)
+bulkKrabNbIntersect = read.csv("./KRAB_guide_results_closest.mergedNbAllPeaks.txt", header=F, sep="\t")
+bulkKrabNbIntersect$nb = "no"
+bulkKrabNbIntersect[bulkKrabNbIntersect$V10 == 0,]$nb = "yes"
+pdf("bulkKrabNbYesNoLfc.pdf")
+ggplot(bulkKrabNbIntersect, aes(x=factor(nb), y=V6)) + geom_boxplot(outlier.shape=NA) + theme_minimal()
+dev.off()
+pdf("bulkKrabNbYesNoFdr.pdf")
+ggplot(bulkKrabNbIntersect, aes(x=factor(nb), y=-log10(V5))) + geom_boxplot(outlier.shape=NA) + theme_minimal() + coord_cartesian(ylim=c(0,0.25))
+dev.off()
+bulkKrabNbAtacIntersect = read.csv("./KRAB_guide_results_closest.mergedNbAtac.txt", header=F, sep="\t")
+bulkKrabNbAtacIntersect$atac = "no"
+bulkKrabNbAtacIntersect[bulkKrabNbAtacIntersect$V10 == 0,]$atac = "yes"
+pdf("bulkKrabNbAtacYesNoFdr.pdf")
+library(ggplot2)
+ggplot(bulkKrabNbAtacIntersect, aes(x=factor(atac), y=-log10(V5))) + geom_boxplot(outlier.shape=NA) + theme_minimal() + coord_cartesian(ylim=c(0,0.25))
+dev.off()
+pdf("bulkKrabNbAtacYesNoLfc.pdf")
+ggplot(bulkKrabNbAtacIntersect, aes(x=factor(atac), y=V6)) + geom_boxplot(outlier.shape=NA) + theme_minimal()
+dev.off()
+aafInt800regions$prox = bulkRegionsGeneTss[match(aafInt800regions$ident, bulkRegionsGeneTss$V4),14]
+aafInt800regions$closestGeneTss = bulkRegionsGeneTss[match(aafInt800regions$ident, bulkRegionsGeneTss$V4),10]
+nrow(subset(aafInt800regions, aafInt800regions$prox == "intragenic" & aafInt800regions$closestGene == aafInt800regions$gene & aafInt800regions$sig == "sig"))
+subset(aafInt800regions, aafInt800regions$prox == "intragenic" & aafInt800regions$closestGene == aafInt800regions$gene & aafInt800regions$sig == "sig")
+nrow(subset(aafInt800regions, aafInt800regions$prox == "intragenic" & aafInt800regions$closestGene != aafInt800regions$gene & aafInt800regions$sig == "sig"))
+```
+
+```{bash}
+bedtools intersect -wa -wb -a ../noNA_bulkRegions.bed -b ../gencode.v24.annotation.gtf.genes.bed | bedtools merge -i stdin -c 4,9 -o distinct,distinct > noNA_bulkRegions.genesIntersectMerged.bed
+
+
+
+```
+
+```{r}
+bulkRegionsMergedGeneIntersect =  read.csv("./noNA_bulkRegions.genesIntersectMerged.bed",header=F, sep="\t")
+aafInt800regions$geneIntersect = bulkRegionsMergedGeneIntersect[match(aafInt800regions$ident, bulkRegionsMergedGeneIntersect$V4),5]
+aafInt800regions$geneIntersect = factor(aafInt800regions$geneIntersect)
+
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="AC195454.1"] <- "LINC02265"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="UCHL1-AS1"] <- "UCHL1.AS1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="LVCAT1"] <- "LINC02475"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-663P9.2"] <- "NDUFB4P12"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="ZBTB12P1"] <- "ZBTB12BP"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-700J17.2"] <- "AC096586.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-700J17.1"] <- "AC096586.2"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-814H16.2"] <- "AC106052.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-109E24.1"] <- "AC096734.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-333E13.2"] <- "AC098591.2"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-395I6.3"] <- "AC095057.3"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-324J13.1"] <- "AC098590.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-472B18.1"] <- "AC021148.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-539G18.3"] <- "AC108471.2"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-227F19.1"] <- "AC105389.3"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-109E24.2"] <- "AC096734.2"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-360F5.3"] <- "AC079921.2"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-63A11.1"] <- "AC024022.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-457P14.5"] <- "AC108210.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="APBB2,RP11-632F7.3"] <- "APBB2"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="PHOX2B,RP11-227F19.1,RP11-227F19.2"] <- "PHOX2B,AC105389.3"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-227F19.1,RP11-227F19.2"] <- "AC105389.3"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RNU1-49P,RP11-227F19.1"] <- "AC105389.3"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-457P14.6"] <- NA
+
+aafInt800regions$geneIntersectIsTarget = mapply(function(x, y) grepl(x, y, fixed = T), aafInt800regions$gene, aafInt800regions$geneIntersect)
+
+nrow(subset(aafInt800regions, aafInt800regions$sig == "sig" & aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$prox == "intragenic"))
+#[1] 7
+nrow(subset(aafInt800regions, aafInt800regions$sig == "sig" & aafInt800regions$geneIntersectIsTarget == "FALSE" & aafInt800regions$prox == "intragenic"))
+#[1] 58
+
+nrow(subset(aafInt800regions, aafInt800regions$sig == "sig" & aafInt800regions$geneIntersectIsTarget == "TRUE"))
+#[1] 11
+nrow(subset(aafInt800regions, aafInt800regions$sig == "sig" & aafInt800regions$geneIntersectIsTarget == "FALSE"))
+#[1] 81
+
+phox2bIntraRegions = unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == "PHOX2B","ident"])
+
+phox2bIntraRegionsCellsPurturbed <- unique(unlist(lapply(phox2bIntraRegions, function(col_name) {
+  matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+  names(matCw@active.ident)[matching_rows]
+})))
+
+phox2bIntraRegionsCellsNotPurturbed = names(matCw@active.ident)[!names(matCw@active.ident) %in% phox2bIntraRegionsCellsPurturbed]
+
+phox2bIntraList = list("targeted" = matCw@assays$SCT@data["PHOX2B",phox2bIntraRegionsCellsPurturbed], "not targeted" = matCw@assays$SCT@data["PHOX2B",phox2bIntraRegionsCellsNotPurturbed])
+library(reshape2)
+phox2bIntraListMelt = melt(phox2bIntraList)
+pdf("phox2bIntra.pdf")
+ggplot(phox2bIntraListMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,5)) + theme_classic() + xlab("PHOX2B intragenic CaREs") + ylab("log corrected PHOX2B counts per cell")
+dev.off()
+
+phox2bIntraProxRegions = unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == "PHOX2B" & aafInt800regions$prox == "proximal","ident"])
+
+phox2bIntraIntraRegions = unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == "PHOX2B" & aafInt800regions$prox == "intragenic","ident"])
+
+phox2bIntraProxRegionsCellsPurturbed <- unique(unlist(lapply(phox2bIntraProxRegions, function(col_name) {
+  matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+  names(matCw@active.ident)[matching_rows]
+})))
+
+phox2bIntraIntraRegionsCellsPurturbed <- unique(unlist(lapply(phox2bIntraIntraRegions, function(col_name) {
+  matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+  names(matCw@active.ident)[matching_rows]
+})))
+
+phox2bIntraProxList = list("proxTargeted" = matCw@assays$SCT@data["PHOX2B",phox2bIntraProxRegionsCellsPurturbed], "distTargeted" = matCw@assays$SCT@data["PHOX2B",phox2bIntraIntraRegionsCellsPurturbed], "notTargeted" = matCw@assays$SCT@data["PHOX2B",phox2bIntraRegionsCellsNotPurturbed])
+
+phox2bIntraProxListMelt = melt(phox2bIntraProxList)
+
+pdf("phox2bIntraProx.pdf")
+ggplot(phox2bIntraProxListMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,5)) + theme_classic() + xlab("PHOX2B intragenic CaREs") + ylab("log corrected PHOX2B counts per cell")
+dev.off()
+
+#SHISA3
+
+shisa3IntraRegions = unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == "SHISA3","ident"])
+
+shisa3IntraRegionsCellsPurturbed <- unique(unlist(lapply(shisa3IntraRegions, function(col_name) {
+  matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+  names(matCw@active.ident)[matching_rows]
+})))
+
+shisa3IntraRegionsCellsNotPurturbed = names(matCw@active.ident)[!names(matCw@active.ident) %in% shisa3IntraRegionsCellsPurturbed]
+
+shisa3IntraList = list("targeted" = matCw@assays$SCT@data["SHISA3",shisa3IntraRegionsCellsPurturbed], "not targeted" = matCw@assays$SCT@data["SHISA3",shisa3IntraRegionsCellsNotPurturbed])
+shisa3IntraListMelt = melt(shisa3IntraList)
+
+pdf("shisa3Intra.pdf")
+ggplot(shisa3IntraListMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,5)) + theme_classic() + xlab("SHISA3 intragenic CaREs") + ylab("log corrected SHISA3 counts per cell")
+dev.off()
+
+shisa3IntraProxRegions = unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == "SHISA3" & aafInt800regions$prox == "proximal","ident"])
+
+shisa3IntraIntraRegions = unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == "SHISA3" & aafInt800regions$prox == "intragenic","ident"])
+
+shisa3IntraProxRegionsCellsPurturbed <- unique(unlist(lapply(shisa3IntraProxRegions, function(col_name) {
+  matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+  names(matCw@active.ident)[matching_rows]
+})))
+
+shisa3IntraIntraRegionsCellsPurturbed <- unique(unlist(lapply(shisa3IntraIntraRegions, function(col_name) {
+  matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+  names(matCw@active.ident)[matching_rows]
+})))
+
+shisa3IntraProxList = list("proxTargeted" = matCw@assays$SCT@data["SHISA3",shisa3IntraProxRegionsCellsPurturbed], "distTargeted" = matCw@assays$SCT@data["SHISA3",shisa3IntraIntraRegionsCellsPurturbed], "notTargeted" = matCw@assays$SCT@data["SHISA3",shisa3IntraRegionsCellsNotPurturbed])
+
+shisa3IntraProxListMelt = melt(shisa3IntraProxList)
+
+pdf("shisa3IntraProx.pdf")
+ggplot(shisa3IntraProxListMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,5)) + theme_classic() + xlab("SHISA3 intragenic CaREs") + ylab("log corrected SHISA3 counts per cell")
+dev.off()
+
+#shisa3 phox2b double plot test
+
+shisa3IntraProxListMelt$gene = "SHISA3"
+
+phox2bIntraProxListMelt$gene = "PHOX2B"
+
+phox2bShisa3IntraProxListMelt = rbind(shisa3IntraProxListMelt,phox2bIntraProxListMelt)
+
+pdf("phox2bShisa3IntraProx.pdf")
+ggplot(phox2bShisa3IntraProxListMelt, aes(x = gene, y=value, fill=L1)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,5)) + theme_classic() + xlab("intragenic CaREs") + ylab("log corrected counts per cell")
+dev.off()
+
+#for all intragenic CaREs per gene
+intraGenes = unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE","gene"])
+intraGeneDf = data.frame()
+for (gene in intraGenes){
+    paste0(gene,"IntraRegions") = unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == gene,"ident"])
+    paste0(gene,"IntraRegionsCellsPurturbed") <- unique(unlist(lapply(paste0(gene,"IntraRegions"), function(col_name) {
+  matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+  names(matCw@active.ident)[matching_rows]
+})))
+    paste0(gene,"IntraRegionsCellsNotPurturbed") = names(matCw@active.ident)[!names(matCw@active.ident) %in% paste0(gene,"IntraRegionsCellsPurturbed")]
+    paste0(gene,"IntraProxRegions") = unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == gene & aafInt800regions$prox == "proximal","ident"])
+    paste0(gene,"IntraIntraRegions") = unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == gene & aafInt800regions$prox == "intragenic","ident"])
+    paste0(gene,"IntraProxRegionsCellsPurturbed") <- unique(unlist(lapply(paste0(gene,"IntraProxRegions"), function(col_name) {
+  matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+  names(matCw@active.ident)[matching_rows]
+})))
+    paste0(gene,"IntraIntraRegionsCellsPurturbed") <- unique(unlist(lapply(paste0(gene,"IntraIntraRegions"), function(col_name) {
+  matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+  names(matCw@active.ident)[matching_rows]
+})))
+    paste0(gene,"IntraProxList") = list("proxTargeted" = matCw@assays$SCT@data[gene,paste0(gene,"IntraProxRegionsCellsPurturbed")], "distTargeted" = matCw@assays$SCT@data[gene,paste0(gene,"IntraIntraRegionsCellsPurturbed")], "notTargeted" = matCw@assays$SCT@data[gene,paste0(gene,"IntraRegionsCellsNotPurturbed")])
+    paste0(gene,"IntraProxListMelt") = melt(paste0(gene,"IntraProxList"))
+    paste0(gene,"IntraProxListMelt")$gene = gene
+    intraGeneDf = rbind(intraGeneDf,paste0(gene,"IntraProxListMelt"))
+}
+
+
+###chatGPT corrected code
+
+# Ensure intraGeneDf is initialized
+intraGeneDf <- data.frame()
+
+# Loop through genes
+for (gene in intraGenes) {
+  
+  # Dynamically create variables
+  assign(paste0(gene, "IntraRegions"), 
+         unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == gene, "ident"]))
+  
+  assign(paste0(gene, "AllSigRegions"), 
+         unique(aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$gene == gene, "ident"]))
+  
+  assign(paste0(gene, "IntraRegionsCellsPurturbed"), 
+         unique(unlist(lapply(get(paste0(gene, "IntraRegions")), function(col_name) {
+           if (col_name %in% colnames(matCw@meta.data)) {
+             matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+             names(matCw@active.ident)[matching_rows]
+           } else {
+             NULL
+           }
+         }))))
+  
+  assign(paste0(gene, "AllSigRegionsCellsPurturbed"), 
+         unique(unlist(lapply(get(paste0(gene, "AllSigRegions")), function(col_name) {
+           if (col_name %in% colnames(matCw@meta.data)) {
+             matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+             names(matCw@active.ident)[matching_rows]
+           } else {
+             NULL
+           }
+         }))))
+
+  assign(paste0(gene, "CombinedCellsPurturbed"),
+         c(get(paste0(gene, "IntraRegionsCellsPurturbed")), get(paste0(gene, "AllSigRegionsCellsPurturbed"))))
+
+  assign(paste0(gene, "IntraRegionsCellsNotPurturbed"), 
+         names(matCw@active.ident)[!names(matCw@active.ident) %in% get(paste0(gene, "CombinedCellsPurturbed"))])
+  
+  assign(paste0(gene, "IntraProxRegions"), 
+         unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == gene & aafInt800regions$prox == "proximal", "ident"]))
+  
+  assign(paste0(gene, "IntraIntraRegions"), 
+         unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == gene & aafInt800regions$prox == "intragenic", "ident"]))
+  
+  assign(paste0(gene, "IntraProxRegionsCellsPurturbed"), 
+         unique(unlist(lapply(get(paste0(gene, "IntraProxRegions")), function(col_name) {
+           if (col_name %in% colnames(matCw@meta.data)) {
+             matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+             names(matCw@active.ident)[matching_rows]
+           } else {
+             NULL
+           }
+         }))))
+  
+  assign(paste0(gene, "IntraIntraRegionsCellsPurturbed"), 
+         unique(unlist(lapply(get(paste0(gene, "IntraIntraRegions")), function(col_name) {
+           if (col_name %in% colnames(matCw@meta.data)) {
+             matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+             names(matCw@active.ident)[matching_rows]
+           } else {
+             NULL
+           }
+         }))))
+  
+  # Create a list and melt it
+  intraProxList <- list(
+    proxTargeted = matCw@assays$SCT@data[gene, get(paste0(gene, "IntraProxRegionsCellsPurturbed"))],
+    distTargeted = matCw@assays$SCT@data[gene, get(paste0(gene, "IntraIntraRegionsCellsPurturbed"))],
+    notTargeted = matCw@assays$SCT@data[gene, get(paste0(gene, "IntraRegionsCellsNotPurturbed"))]
+  )
+  
+  melted_list <- melt(intraProxList)
+  melted_list$gene <- gene
+  
+  # Append to intraGeneDf
+  intraGeneDf <- rbind(intraGeneDf, melted_list)
+}
+
+
+pdf("allGenesIntraProx.pdf")
+ggplot(intraGeneDf, aes(x = gene, y=value, fill=L1, color=L1)) + geom_boxplot() + coord_cartesian(ylim = c(0,6)) + theme_classic() + xlab("intragenic CaREs") + ylab("log corrected counts per cell")
+dev.off()
+
+
+#bend4IntraList = list("targeted" = matCw@assays$SCT@data["BEND4",bend4IntraRegionsCellsPurturbed], "not targeted" = matCw@assays$SCT@data["BEND4",bend4IntraRegionsCellsNotPurturbed])
+#bend4IntraListMelt = melt(bend4IntraList)
+#pdf("bend4Intra.pdf")
+#ggplot(bend4IntraListMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,5)) + theme_classic() + xlab("BEND4 intragenic CaREs") + ylab("log corrected BEND4 counts per cell")
+#dev.off()
+
+#pdf("bend4IntraProx.pdf")
+#ggplot(bend4IntraProxListMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,5)) + theme_classic() + xlab("BEND4 intragenic CaREs") + ylab("log corrected BEND4 counts per cell")
+#dev.off()
+
+geneMaxRhapCounts = apply(matCw@assays$SCT@data,1,max)
+
+geneMeanRhapCounts = apply(matCw@assays$SCT@data,1,mean)
+
+#promoter guides upstream vs downsteam??
+
+#neighboring cares and their targets for spreading
+
+#phox2b binding site cares in cells containing phox2b-actiavteing guides
+
+```
+
+
+##address spreading by looking target expression for closest CaREs that have different targets in cells where the primary care is targeted and not the secondary care
+```{r}
+write.table((unique(aafInt800regions[,c(11,12,13,7)])), file="rhapRegions.bed", quote=F, sep="\t", row.names=F, col.names=F)
+```
+```{bash}
+bedtools closest -d -N -a <(bedtools sort -i rhapRegions.bed) -b <(bedtools sort -i rhapRegions.bed) > rhapRegions.bed_selfClosest.bed
+
+
+```
+```{r}
+rhapRegionsSelfClosest = read.csv("rhapRegions.bed_selfClosest.bed", header=F, sep="\t")
+aafInt800regions$careClosestCare = rhapRegionsSelfClosest[match(aafInt800regions$ident, rhapRegionsSelfClosest$V4),8]
+aafInt800regions$careClosestCareDist = rhapRegionsSelfClosest[match(aafInt800regions$ident, rhapRegionsSelfClosest$V4),9]
+sigRegionTargets = aafInt800regions[aafInt800regions$sig == "sig",] %>% group_by(ident) %>% summarise(targets = paste(unique(gene), collapse = ","))
+sigRegionTargets = as.data.frame(sigRegionTargets)
+aafInt800regions$careClosestCareTargets = sigRegionTargets[match(aafInt800regions$careClosestCare, sigRegionTargets$ident),2]
+##this "same target" is decieving because primary CaRE is one line per target
+aafInt800regions$careClosestCareTargetsSame = mapply(function(x, y) grepl(x, y, fixed = T), aafInt800regions$gene, aafInt800regions$careClosestCareTargets)
+
+unique(aafInt800regions[aafInt800regions$sig == "sig" & !is.na(aafInt800regions$careClosestCareTargets), c(7,67,68,69,72)])
+           ident careClosestCare careClosestCareDist  careClosestCareTargets          allCareTargets
+61007   Region_1        Region_3                3671              PDS5A,TLR1      RBM47,NSUN7,RPS7P7
+61715 Region_171      Region_174                9631                   APBB2               NDUFB4P12
+61774 Region_174      Region_179                9129                    TLR1                   APBB2
+63249   Region_3        Region_1                3671      RBM47,NSUN7,RPS7P7              PDS5A,TLR1
+67851 Region_553      Region_557                4752                  PHOX2B        PHOX2B,LINC00682
+68028 Region_561      Region_562                1557                  PHOX2B                  PHOX2B
+69385 Region_668      Region_669                1133                   BEND4                  CHRNA9
+69444 Region_669      Region_668                1133                  CHRNA9                   BEND4
+69503 Region_671      Region_669                2254                   BEND4        BEND4,AC098590.1
+70624 Region_729      Region_730                1020            BEND4,SHISA3         SHISA3,ZBTB12BP
+71155 Region_740      Region_741                 826                  SHISA3            SHISA3,BEND4
+71214 Region_741      Region_740                 826            SHISA3,BEND4                  SHISA3
+71981 Region_789      Region_790                 654        SHISA3,TLR6,UGDH                  SHISA3
+72040 Region_790      Region_789                 654                  SHISA3        SHISA3,TLR6,UGDH
+72099 Region_803      Region_806                5134 SHISA3,TMEM156,PABPC1P1                  SHISA3
+72158 Region_806      Region_803                5134                  SHISA3 SHISA3,TMEM156,PABPC1P1
+72512 Region_828      Region_829                1266                  SHISA3   SHISA3,TLR6,LINC02265
+72571 Region_829      Region_828                1266   SHISA3,TLR6,LINC02265                  SHISA3
+72748 Region_836      Region_831                7172                  SHISA3                  ATP8A1
+
+19 cases, 12 share a common gene, 11 less than 2.5 kb, 10 less than 2 kb, 4 less than 1 kb
+
+```
+
+###cares with phox2b binding from chip that do not target phox2b gene look in cells with phox2b targeting guides to see if the targets of these other cares are also activated, i.e. indirect effects
+```{bash}
+cat ../tfChips/filtered*PHOX* | cut -f1-3 | bedtools sort -i stdin | bedtools merge -i stdin > mergedFilteredPhox2bChips.bed
+bedtools intersect -u -a rhapRegions.bed -b mergedFilteredPhox2bChips.bed > rhapRegionsWithPhox2bBinding.bed
+
+
+```
+
+```{r}
+##from Uwe add examples of genes with significant cares that do not have phox2b binding sites###
+
+
+phox2bBindingCares = read.csv("rhapRegionsWithPhox2bBinding.bed", header=F, sep="\t")
+aafInt800regions$phox2bBinding = aafInt800regions$ident %in% phox2bBindingCares$V4
+
+aafInt800regions$allCareTargets = sigRegionTargets[match(aafInt800regions$ident, sigRegionTargets$ident),2]
+unique(aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$phox2bBinding == "TRUE",c("ident","allCareTargets")])
+#           ident                             allCareTargets
+#65786 Region_477                                     PHOX2B
+#66317 Region_494                             PHOX2B,SLC30A9
+#66848 Region_512                                     PHOX2B
+#67025 Region_520                                     PHOX2B
+#67261 Region_530                           PHOX2B,LINC00682
+#67497 Region_537                           PHOX2B,LINC00682
+#67851 Region_553                           PHOX2B,LINC00682
+#67910 Region_557                                     PHOX2B
+#68028 Region_561                                     PHOX2B
+#68205 Region_564 LINC00682,PHOX2B,RPS7P7,AC095057.3,SLC30A9
+#71155 Region_740                               SHISA3,BEND4
+#71214 Region_741                                     SHISA3
+#72571 Region_829                                     SHISA3
+#73692 Region_935                               WDR19,GNPDA2
+
+#there are 4 cares that have ChIP binding sites for phox2b and do not significantly target Phox2b. so the question is in cells that have guides targeting phox2b, are these cares activated through secondary effects and thus their genes as well. 
+
+aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$gene == "PHOX2B",c("ident","avg_logFC","allCareTargets")]
+#           ident  avg_logFC                             allCareTargets
+#65786 Region_477  0.4677258                                     PHOX2B
+#66317 Region_494 -0.5493911                             PHOX2B,SLC30A9
+#66612 Region_504  0.3603152                                     PHOX2B
+#66848 Region_512 -0.3404573                                     PHOX2B
+#67025 Region_520  0.4048890                                     PHOX2B
+#67261 Region_530 -0.3854239                           PHOX2B,LINC00682
+#67497 Region_537 -0.3656320                           PHOX2B,LINC00682
+#67851 Region_553  0.8111515                           PHOX2B,LINC00682
+#67910 Region_557  0.6284872                                     PHOX2B
+#68028 Region_561  0.5063157                                     PHOX2B
+#68087 Region_562 -0.2376408                                     PHOX2B
+#68206 Region_564  0.4317661 LINC00682,PHOX2B,RPS7P7,AC095057.3,SLC30A9
+#74046  Region_99 -0.5605712                             PHOX2B,TMEM156
+
+
+
+#genes targeted by CaREs that have phox2b binding sites and do not target phox2b:
+phox2bSecTars = data.frame()
+phox2bCares = aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$gene == "PHOX2B","ident"]
+phox2bCares = phox2bCares[ !phox2bCares == 'Region_99']
+phox2bCareCells = unique(unlist(lapply(phox2bCares, function(col_name) {
+           if (col_name %in% colnames(matCw@meta.data)) {
+             matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+             names(matCw@active.ident)[matching_rows]
+           } else {
+             NULL
+           }
+         })))
+nonPhox2bCareCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% phox2bCareCells]
+
+shisa3phoxList = list("phox2bCaREs" = matCw@assays$SCT@data["SHISA3", phox2bCareCells], "nonPhox2bCaREs" = matCw@assays$SCT@data["SHISA3", nonPhox2bCareCells])
+shisa3phoxListMelted = melt(shisa3phoxList)
+shisa3phoxListMelted$gene = "SHISA3"
+phox2bSecTars = rbind(phox2bSecTars,shisa3phoxListMelted)
+
+bend4phoxList = list("phox2bCaREs" = matCw@assays$SCT@data["BEND4", phox2bCareCells], "nonPhox2bCaREs" = matCw@assays$SCT@data["BEND4", nonPhox2bCareCells])
+bend4phoxListMelted = melt(bend4phoxList)
+bend4phoxListMelted$gene = "BEND4"
+phox2bSecTars = rbind(phox2bSecTars,bend4phoxListMelted)
+
+wdr19phoxList = list("phox2bCaREs" = matCw@assays$SCT@data["WDR19", phox2bCareCells], "nonPhox2bCaREs" = matCw@assays$SCT@data["WDR19", nonPhox2bCareCells])
+wdr19phoxListMelted = melt(wdr19phoxList)
+wdr19phoxListMelted$gene = "WDR19"
+phox2bSecTars = rbind(phox2bSecTars,wdr19phoxListMelted)
+
+gnpda2phoxList = list("phox2bCaREs" = matCw@assays$SCT@data["GNPDA2", phox2bCareCells], "nonPhox2bCaREs" = matCw@assays$SCT@data["GNPDA2", nonPhox2bCareCells])
+gnpda2phoxListMelted = melt(gnpda2phoxList)
+gnpda2phoxListMelted$gene = "GNPDA2"
+phox2bSecTars = rbind(phox2bSecTars,gnpda2phoxListMelted)
+
+pdf("phox2bSecTars.pdf")
+ggplot(phox2bSecTars, aes(x = gene, y=value, fill=L1, color=L1)) + geom_boxplot() + coord_cartesian(ylim = c(0,6)) + theme_classic() + xlab("Phox2b target genes") + ylab("log corrected counts per cell")
+dev.off()
+
+#are any of the phox2b CaREs close to being significant for SHISA3
+aafInt800regions[aafInt800regions$ident == "Region_477"  & aafInt800regions$gene == "SHISA3",c("ident","gene","avg_logFC","p_val_adj")]
+#           ident   gene   avg_logFC p_val_adj
+#65829 Region_477 SHISA3 -0.01274492 0.9703414
+aafInt800regions[aafInt800regions$ident == "Region_494"  & aafInt800regions$gene == "SHISA3",c("ident","gene","avg_logFC","p_val_adj")]
+#           ident   gene avg_logFC  p_val_adj
+#66320 Region_494 SHISA3 0.0198781 0.08178146
+aafInt800regions[aafInt800regions$ident == "Region_504"  & aafInt800regions$gene == "SHISA3",c("ident","gene","avg_logFC","p_val_adj")]
+#           ident   gene  avg_logFC p_val_adj
+#66638 Region_504 SHISA3 0.02143778 0.6347887
+aafInt800regions[aafInt800regions$ident == "Region_512"  & aafInt800regions$gene == "SHISA3",c("ident","gene","avg_logFC","p_val_adj")]
+#           ident   gene   avg_logFC p_val_adj
+#66859 Region_512 SHISA3 -0.01816908 0.9308393
+aafInt800regions[aafInt800regions$ident == "Region_520"  & aafInt800regions$gene == "SHISA3",c("ident","gene","avg_logFC","p_val_adj")]
+#           ident   gene   avg_logFC p_val_adj
+#67058 Region_520 SHISA3 -0.01040432 0.7966449
+aafInt800regions[aafInt800regions$ident == "Region_530"  & aafInt800regions$gene == "SHISA3",c("ident","gene","avg_logFC","p_val_adj")]
+#           ident   gene avg_logFC p_val_adj
+#67263 Region_530 SHISA3  0.025461 0.1179445
+aafInt800regions[aafInt800regions$ident == "Region_537"  & aafInt800regions$gene == "SHISA3",c("ident","gene","avg_logFC","p_val_adj")]
+#           ident   gene  avg_logFC p_val_adj
+#67529 Region_537 SHISA3 0.01462557 0.7568072
+aafInt800regions[aafInt800regions$ident == "Region_553"  & aafInt800regions$gene == "SHISA3",c("ident","gene","avg_logFC","p_val_adj")]
+#           ident   gene    avg_logFC p_val_adj
+#67870 Region_553 SHISA3 -0.002552521 0.9236715
+aafInt800regions[aafInt800regions$ident == "Region_557"  & aafInt800regions$gene == "SHISA3",c("ident","gene","avg_logFC","p_val_adj")]
+#           ident   gene    avg_logFC p_val_adj
+#67944 Region_557 SHISA3 -0.001428921 0.9481563
+aafInt800regions[aafInt800regions$ident == "Region_561"  & aafInt800regions$gene == "SHISA3",c("ident","gene","avg_logFC","p_val_adj")]
+#           ident   gene  avg_logFC p_val_adj
+#68034 Region_561 SHISA3 0.03217789 0.2937052
+aafInt800regions[aafInt800regions$ident == "Region_562"  & aafInt800regions$gene == "SHISA3",c("ident","gene","avg_logFC","p_val_adj")]
+#           ident   gene   avg_logFC p_val_adj
+#68134 Region_562 SHISA3 0.004713765 0.8767456
+aafInt800regions[aafInt800regions$ident == "Region_564"  & aafInt800regions$gene == "SHISA3",c("ident","gene","avg_logFC","p_val_adj")]
+#           ident   gene   avg_logFC p_val_adj
+#68226 Region_564 SHISA3 -0.02907134 0.4020687
+aafInt800regions[aafInt800regions$ident == "Region_99"  & aafInt800regions$gene == "SHISA3",c("ident","gene","avg_logFC","p_val_adj")]
+#          ident   gene    avg_logFC p_val_adj
+#74102 Region_99 SHISA3 -0.009147641  0.950516
+
+##plot sec targets again only for phox2b promoter
+phox2bPromSecTars = data.frame()
+shisa3phoxPromList = list("phox2bPromCells" = matCw@assays$SCT@data["SHISA3", region494cells], "nonPhox2bPromCells" = matCw@assays$SCT@data["SHISA3", region494nonCells])
+shisa3phoxPromListMelted = melt(shisa3phoxPromList)
+shisa3phoxPromListMelted$gene = "SHISA3"
+phox2bPromSecTars = rbind(phox2bPromSecTars,shisa3phoxPromListMelted)
+
+bend4phoxPromList = list("phox2bPromCells" = matCw@assays$SCT@data["BEND4", region494cells], "nonPhox2bPromCells" = matCw@assays$SCT@data["BEND4", region494nonCells])
+bend4phoxPromListMelted = melt(bend4phoxPromList)
+bend4phoxPromListMelted$gene = "BEND4"
+phox2bPromSecTars = rbind(phox2bPromSecTars,bend4phoxPromListMelted)
+
+wdr19phoxPromList = list("phox2bPromCells" = matCw@assays$SCT@data["WDR19", region494cells], "nonPhox2bPromCells" = matCw@assays$SCT@data["WDR19", region494nonCells])
+wdr19phoxPromListMelted = melt(wdr19phoxPromList)
+wdr19phoxPromListMelted$gene = "WDR19"
+phox2bPromSecTars = rbind(phox2bPromSecTars,wdr19phoxPromListMelted)
+
+gnpda2phoxPromList = list("phox2bPromCells" = matCw@assays$SCT@data["GNPDA2", region494cells], "nonPhox2bPromCells" = matCw@assays$SCT@data["GNPDA2", region494nonCells])
+gnpda2phoxPromListMelted = melt(gnpda2phoxPromList)
+gnpda2phoxPromListMelted$gene = "GNPDA2"
+phox2bPromSecTars = rbind(phox2bPromSecTars,gnpda2phoxPromListMelted)
+
+pdf("phox2bPromSecTars.pdf")
+ggplot(phox2bPromSecTars, aes(x = gene, y=value, fill=L1, color=L1)) + geom_boxplot() + coord_cartesian(ylim = c(0,6)) + theme_classic() + xlab("Phox2b target genes") + ylab("corrected counts per cell")
+dev.off()
+
+```
+
+##probing strange observation about phox2b promoter care showing increased phox2b expression count distribution but lfc reported by MAST is negative
+```{r}
+aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$gene == "PHOX2B",c("ident","dist","avg_logFC")]                                                                          
+           ident     dist  avg_logFC
+#65786 Region_477 4.535332  0.4677258
+#66317 Region_494 2.413300 -0.5493911
+#66612 Region_504 4.345550  0.3603152
+#66848 Region_512 4.549579 -0.3404573
+#67025 Region_520 4.671377  0.4048890
+#67261 Region_530 4.811629 -0.3854239
+#67497 Region_537 4.916670 -0.3656320
+#67851 Region_553 5.031941  0.8111515
+#67910 Region_557 5.055844  0.6284872
+#68028 Region_561 5.092977  0.5063157
+#68087 Region_562 5.107312 -0.2376408
+#68206 Region_564 5.131346  0.4317661
+#74046  Region_99 5.902330 -0.5605712
+region477cells = matCw@meta.data[["Region_477"]] == "perturbed"
+region477nonCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% region477cells]
+region477cellsPhox2b = matCw@assays$SCT@data["PHOX2B", region477cells]                                                                                                                     
+region477nonCellsPhox2b = matCw@assays$SCT@data["PHOX2B", region477nonCells]                                                                                                               
+summary(region477cellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  0.000   1.386   2.565   2.297   3.367   4.317 
+summary(region477nonCellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.0794  1.8562  2.9444  4.8675
+
+region494cells = matCw@meta.data[["Region_494"]] == "perturbed"
+region494nonCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% region494cells]
+region494cellsPhox2b = matCw@assays$SCT@data["PHOX2B", region494cells]  
+region494nonCellsPhox2b = matCw@assays$SCT@data["PHOX2B", region494nonCells] 
+summary(region494cellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  0.000   1.386   2.565   2.256   3.296   4.754
+summary(region494nonCellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.0794  1.8562  2.9444  4.8675
+
+
+region504cells = matCw@meta.data[["Region_504"]] == "perturbed"
+region504nonCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% region504cells]
+region504cellsPhox2b = matCw@assays$SCT@data["PHOX2B", region504cells]
+region504nonCellsPhox2b = matCw@assays$SCT@data["PHOX2B", region504nonCells]
+summary(region504cellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  0.000   1.099   2.485   2.222   3.367   4.543
+summary(region504nonCellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.0794  1.8562  2.9444  4.8675
+
+region512cells = matCw@meta.data[["Region_512"]] == "perturbed"
+region512nonCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% region512cells]
+region512cellsPhox2b = matCw@assays$SCT@data["PHOX2B", region512cells]
+region512nonCellsPhox2b = matCw@assays$SCT@data["PHOX2B", region512nonCells]
+summary(region512cellsPhox2b)
+summary(region512nonCellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  0.000   1.099   2.398   2.178   3.296   4.489 
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.0794  1.8562  2.9444  4.8675
+
+region520cells = matCw@meta.data[["Region_520"]] == "perturbed"
+region520nonCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% region520cells]
+region520cellsPhox2b = matCw@assays$SCT@data["PHOX2B", region520cells]
+region520nonCellsPhox2b = matCw@assays$SCT@data["PHOX2B", region520nonCells]
+summary(region520cellsPhox2b)
+summary(region520nonCellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  0.000   1.099   2.303   2.068   3.091   4.394 
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.0794  1.8562  2.9444  4.8675
+
+region530cells = matCw@meta.data[["Region_530"]] == "perturbed"
+region530nonCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% region530cells]
+region530cellsPhox2b = matCw@assays$SCT@data["PHOX2B", region530cells]
+region530nonCellsPhox2b = matCw@assays$SCT@data["PHOX2B", region530nonCells]
+summary(region530cellsPhox2b)
+summary(region530nonCellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  0.000   1.099   2.398   2.139   3.198   4.796 
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.0794  1.8562  2.9444  4.8675
+
+region537cells = matCw@meta.data[["Region_537"]] == "perturbed"
+region537nonCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% region537cells]
+region537cellsPhox2b = matCw@assays$SCT@data["PHOX2B", region537cells]
+region537nonCellsPhox2b = matCw@assays$SCT@data["PHOX2B", region537nonCells]
+summary(region537cellsPhox2b)
+summary(region537nonCellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.9972  2.4849  2.1668  3.2958  4.7536 
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.0794  1.8562  2.9444  4.8675
+
+region553cells = matCw@meta.data[["Region_553"]] == "perturbed"
+region553nonCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% region553cells]
+region553cellsPhox2b = matCw@assays$SCT@data["PHOX2B", region553cells]
+region553nonCellsPhox2b = matCw@assays$SCT@data["PHOX2B", region553nonCells]
+summary(region553cellsPhox2b)
+summary(region553nonCellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  0.000   1.946   2.996   2.570   3.497   4.331 
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.0794  1.8562  2.9444  4.8675
+
+region557cells = matCw@meta.data[["Region_557"]] == "perturbed"
+region557nonCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% region557cells]
+region557cellsPhox2b = matCw@assays$SCT@data["PHOX2B", region557cells]
+region557nonCellsPhox2b = matCw@assays$SCT@data["PHOX2B", region557nonCells]
+summary(region557cellsPhox2b)
+summary(region557nonCellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  0.000   1.386   2.485   2.231   3.091   4.718 
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.0794  1.8562  2.9444  4.8675
+
+region561cells = matCw@meta.data[["Region_561"]] == "perturbed"
+region561nonCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% region561cells]
+region561cellsPhox2b = matCw@assays$SCT@data["PHOX2B", region561cells]
+region561nonCellsPhox2b = matCw@assays$SCT@data["PHOX2B", region561nonCells]
+summary(region561cellsPhox2b)
+summary(region561nonCellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  0.000   1.171   2.639   2.242   3.258   4.718 
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.0794  1.8562  2.9444  4.8675
+
+region562cells = matCw@meta.data[["Region_562"]] == "perturbed"
+region562nonCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% region562cells]
+region562cellsPhox2b = matCw@assays$SCT@data["PHOX2B", region562cells]
+region562nonCellsPhox2b = matCw@assays$SCT@data["PHOX2B", region562nonCells]
+summary(region562cellsPhox2b)
+summary(region562nonCellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.3026  1.9933  3.0910  4.3307 
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.0794  1.8562  2.9444  4.8675
+
+region564cells = matCw@meta.data[["Region_564"]] == "perturbed"
+region564nonCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% region564cells]
+region564cellsPhox2b = matCw@assays$SCT@data["PHOX2B", region564cells]
+region564nonCellsPhox2b = matCw@assays$SCT@data["PHOX2B", region564nonCells]
+summary(region564cellsPhox2b)
+summary(region564nonCellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  0.000   1.099   2.485   2.232   3.305   4.868 
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.0794  1.8562  2.9444  4.8675
+
+region99cells = matCw@meta.data[["Region_99"]] == "perturbed"
+region99nonCells = names(matCw@active.ident)[!names(matCw@active.ident) %in% region99cells]
+region99cellsPhox2b = matCw@assays$SCT@data["PHOX2B", region99cells]
+region99nonCellsPhox2b = matCw@assays$SCT@data["PHOX2B", region99nonCells]
+summary(region99cellsPhox2b)
+summary(region99nonCellsPhox2b)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#  0.000   0.000   1.099   1.195   1.946   3.951 
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+# 0.0000  0.6931  2.0794  1.8562  2.9444  4.8675 
+
+##check SCT$scale.data
+region494cellsPhox2bScale = matCw@assays$SCT@scale.data["PHOX2B", region494cells]
+region494nonCellsPhox2bScale = matCw@assays$SCT@scale.data["PHOX2B", region494nonCells]
+summary(region494cellsPhox2bScale)
+summary(region494nonCellsPhox2bScale)
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#-3.9368 -0.9969  0.1701  1.4294  3.2349 21.3349 
+#   Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+#-4.0104 -1.7344 -0.7747  0.0000  0.9944 21.3349
+
+
+```
+
+##check adjusted pvalue distribution for vpr bulk screen to look for multiple populations
+```{r}
+pdf("bulkRegionFdrDist.pdf")                                                                                                                                                               
+ggplot(bulkRegions, aes(x=-log10(Region_fdr))) + geom_histogram(bins=100) + theme_classic()                                                                                                
+dev.off()
+
+
+
+```
+
+##plot evidence for bulk results
+```{r}
+regionsMeulemanDhsEpiMapCreClosest$nbDist = bulkRegionsNbAll[match(regionsMeulemanDhsEpiMapCreClosest$id, bulkRegionsNbAll$V4),9]
+regionsMeulemanDhsEpiMapCreClosest$nbClose = "no"
+regionsMeulemanDhsEpiMapCreClosest[regionsMeulemanDhsEpiMapCreClosest$nbDist <= 250,]$nbClose = "yes"
+regionsMeulemanDhsEpiMapCreClosest$evidence = "noEF"
+regionsMeulemanDhsEpiMapCreClosest[regionsMeulemanDhsEpiMapCreClosest$nbClose == "yes",]$evidence = "nb"
+regionsMeulemanDhsEpiMapCreClosest[regionsMeulemanDhsEpiMapCreClosest$class != "none" & regionsMeulemanDhsEpiMapCreClosest$nbClose == "no",]$evidence = "other"
+regionsMeulemanDhsEpiMapCreClosest$evidence = factor(regionsMeulemanDhsEpiMapCreClosest$evidence, levels = c("nb", "other", "noEF"))
+
+regionsMeulemanDhsEpiMapCreClosest$sig = "nonSig"
+regionsMeulemanDhsEpiMapCreClosest[regionsMeulemanDhsEpiMapCreClosest$fdr < 0.05,23] = "sig"
+
+pdf(file="bulkFdrByEvidenceBox.pdf")
+ggplot(subset(regionsMeulemanDhsEpiMapCreClosest, regionsMeulemanDhsEpiMapCreClosest$sig == "sig"), aes(x=evidence, y=-log10(fdr))) + geom_boxplot(outlier.shape = NA) + theme_classic() + coord_cartesian(ylim = c(0,12))
+dev.off()
+
+pdf(file="bulkEvidenceByChrStateBar.pdf")
+ggplot(subset(regionsMeulemanDhsEpiMapCreClosest, regionsMeulemanDhsEpiMapCreClosest$sig == "sig"), aes(x=evidence, fill=class)) + geom_bar() + theme_classic()
+dev.off()
+
+regionsMeulemanDhsEpiMapCreClosest$slope = bulkRegions[match(regionsMeulemanDhsEpiMapCreClosest$id,bulkRegions$Region_name),"Region_slope"]
+
+pdf("bulkSlopeByEvidenceBox.pdf")
+ggplot(subset(regionsMeulemanDhsEpiMapCreClosest, regionsMeulemanDhsEpiMapCreClosest$sig == "sig"), aes(x=evidence, y=slope)) + geom_boxplot(outlier.shape = NA) + theme_classic()
+dev.off()
+
+
+
+```
+
+##plot martins signals from bulk sigNonSig
+```{r}
+
+martinsRegionSignals = read.csv("../../../martin_rhapsody/analysis/integrate_crispr_chips_atac/output/regions_ChIPs_ATAC_hg38.tsv.gz", header=T, sep="\t")
+martinsRegionSignalsNoNa = martinsRegionSignals[!is.na(martinsRegionSignals$Region_fdr),]
+martinsRegionSignalsNoNa$sig = "nonSig"
+martinsRegionSignalsNoNa[martinsRegionSignalsNoNa$Region_fdr < 0.05,37] = "sig"
+
+martinsRegionSignalsNoNa$sig = factor(martinsRegionSignalsNoNa$sig, levels = c("sig", "nonSig"))
+pdf(file="bulkSigNonSigAtac.pdf")
+ggplot(martinsRegionSignalsNoNa, aes(x=sig, y=SHSY5Y_ATAC_norm)) + geom_boxplot(outlier.shape = NA) + theme_classic() + coord_cartesian(ylim = c(0,250))
+dev.off()
+
+pdf(file="bulkSigNonSigK4me1.pdf")
+ggplot(martinsRegionSignalsNoNa, aes(x=sig, y=SHSY5Y_H3K4me1_norm)) + geom_boxplot(outlier.shape = NA) + theme_classic() + coord_cartesian(ylim = c(0,40))
+dev.off()
+
+pdf(file="bulkSigNonSigK4me3.pdf")
+ggplot(martinsRegionSignalsNoNa, aes(x=sig, y=SHSY5Y_H3K4me3_norm)) + geom_boxplot(outlier.shape = NA) + theme_classic() + coord_cartesian(ylim = c(0,10))
+dev.off()
+
+pdf(file="bulkSigNonSigK27ac.pdf")
+ggplot(martinsRegionSignalsNoNa, aes(x=sig, y=SHSY5Y_H3K27ac_norm)) + geom_boxplot(outlier.shape = NA) + theme_classic() + coord_cartesian(ylim = c(0,20))
+dev.off()
+
+#hexbin plots as suggested by Dusa
+pdf("bulkSigAtacFdrHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=-log10(Region_fdr),y=SHSY5Y_ATAC_norm)) + geom_hex() + theme_minimal()
+dev.off()
+pdf("bulkSigMe1FdrHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=-log10(Region_fdr),y=SHSY5Y_H3K4me1_norm)) + geom_hex() + theme_minimal()
+dev.off()
+pdf("bulkSigMe3FdrHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=-log10(Region_fdr),y=SHSY5Y_H3K4me3_norm)) + geom_hex() + theme_minimal()
+dev.off()
+pdf("bulkSig27acFdrHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=-log10(Region_fdr),y=SHSY5Y_H3K27ac_norm)) + geom_hex() + theme_minimal()
+dev.off()
+
+pdf("bulkSigAtacEstimateHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=Region_estimate,y=SHSY5Y_ATAC_norm)) + geom_hex() + theme_minimal()
+dev.off()
+pdf("bulkSigMe1EstimateHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=Region_estimate,y=SHSY5Y_H3K4me1_norm)) + geom_hex() + theme_minimal()
+dev.off()
+pdf("bulkSigMe3EstimateHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=Region_estimate,y=SHSY5Y_H3K4me3_norm)) + geom_hex() + theme_minimal()
+dev.off()
+pdf("bulkSig27acEstimateHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=Region_estimate,y=SHSY5Y_H3K27ac_norm)) + geom_hex() + theme_minimal()
+dev.off()
+
+
+
+
+
+```
+
+
+###guide level bulk promoters krab and vpr
+```{bash}
+perl -lane 'next if $_ =~ /chromosome/;print "$F[0]\t$F[1]\t$F[2]\t$F[7]\t$F[8]\t$F[11]" if $F[11] < 0.05;' /fast/AG_Ohler/Lorena/CRISPR_phox2b/PAPER/KRAB_guide_results.txt > KRAB_guide_results_sig.bed
+perl -lane 'next if $_ =~ /chromosome/;print "$F[0]\t$F[1]\t$F[2]\t$F[7]\t$F[8]\t$F[11]" if $F[11] < 0.05;' /fast/AG_Ohler/Lorena/CRISPR_phox2b/PAPER/VPR_guide_results.txt > VPR_guide_results_sig.bed
+
+cut -f1-3,8 /fast/AG_Ohler/Lorena/CRISPR_phox2b/PAPER/KRAB_guide_results.txt | grep -v chromosome > bulkGuides.bed
+bedtools intersect -u -a <(bedtools slop -b 1000 -i bulkGuides.bed -g /fast/AG_Ohler/Scott/hg38/hg38.chrom.sizes) -b ../gencode.v24.annotation.gtf.genes.bed_true5end.bed | cut -f4 > bulkGuidesPromProxIds.txt
+bedtools intersect -u -a <(bedtools slop -b 500 -i ../noNA_bulkRegions.bed -g /fast/AG_Ohler/Scott/hg38/hg38.chrom.sizes) -b ../gencode.v24.annotation.gtf.genes.bed_true5end.bed | cut -f4 > bulkRegionsPromProxIds.txt
+
+
+
+```
+```{r}
+guidesPromProx = read.csv("bulkGuidesPromProxIds.txt", header=F, sep="\t")
+regionsPromProx= read.csv("bulkRegionsPromProxIds.txt", header=F, sep="\t")
+vpr$prox = "dist"
+vpr[vpr$NAME %in% guidesPromProx$V1,]$prox = "prox"
+krab$prox = "dist"
+krab[krab$NAME %in% guidesPromProx$V1,]$prox = "prox"
+proxFdrData = data.frame("vpr" = vpr[vpr$prox == "prox", "fdr"], "krab" = krab[krab$prox == "prox","fdr"])
+
+pdf("vprKrabPromProxHexbinFdr.pdf")
+ggplot(proxFdrData, aes(x=-log10(vpr), y=-log10(krab))) + geom_hex() + theme_minimal()
+dev.off()
+
+proxLogfoldData = data.frame("vpr" = vpr[vpr$prox == "prox","logfold"], "krab" = krab[krab$prox == "prox","logfold"])
+pdf("vprKrabPromProxHexbinLfc.pdf")
+ggplot(proxLogfoldData, aes(x=vpr, y=krab)) + geom_hex() + theme_minimal()
+dev.off()
+
+
+krabRegionsGithub$prox = "dist"
+krabRegionsGithub[krabRegionsGithub$Gene %in% regionsPromProx$V1,"prox"] = "prox"
+vprRegionsGithub$prox = "dist"
+vprRegionsGithub[vprRegionsGithub$Gene %in% regionsPromProx$V1,"prox"] = "prox"
+
+proxFdrRegionData = data.frame("vpr" = vprRegionsGithub[vprRegionsGithub$prox == "prox","fdr"],"krab"=krabRegionsGithub[krabRegionsGithub$prox == "prox","fdr"])
+proxEstimateData = data.frame("vpr" = vprRegionsGithub[vprRegionsGithub$prox == "prox","estimate"],"krab"=krabRegionsGithub[krabRegionsGithub$prox == "prox","estimate"])
+
+pdf("vprKrabRegionPromProxHexbinFdr.pdf")
+ggplot(proxFdrRegionData, aes(x=-log10(vpr), y=-log10(krab))) + geom_hex() + theme_minimal()
+dev.off()
+
+pdf("vprKrabRegionPromProxHexbinEstimate.pdf")
+ggplot(proxEstimateData, aes(x=vpr, y=krab)) + geom_hex() + theme_minimal()
+dev.off()
+
+
+
+```
+
+#is the phox2b promoter a hit in the krab screen
+```{bash}
+
+grep Region_494 ../../../Analysis/new/regions_bins_guides_results.txt | cut -f21 | sort -u > Region_494guides.txt
+while read p;do echo "$p"; grep "$p" KRAB_guide_results.txt;done <Region_494guides.txt | less                                                                                          
+while read p;do echo "$p"; grep "$p" VPR_guide_results.txt;done <Region_494guides.txt | less                                                                                          
+while read p;do echo "$p"; grep "$p" VPR_guide_results_sig.bed;done <Region_494guides.txt | less
+
+
+
+```
+
+##weird plot for uwe about spreading
+```{r}
+write.table((unique(aafInt800regions[aafInt800regions$sig == "sig",c(11,12,13,7)])), file="rhapRegionsSig.bed", quote=F, sep="\t", row.names=F, col.names=F)
+```
+```{bash}
+bedtools closest -d -N -a <(bedtools sort -i rhapRegionsSig.bed) -b <(bedtools sort -i rhapRegionsSig.bed) > rhapRegionsSig.bed_selfClosest.bed
+
+```
+```{r}
+rhapRegionsSigSelfClosest = read.csv("rhapRegionsSig.bed_selfClosest.bed", header=F, sep="\t")
+rhapRegionsSigSelfClosest$closestPairId = paste(rhapRegionsSigSelfClosest$V4, rhapRegionsSigSelfClosest$V8, sep = ";")
+rhapRegionsSelfClosest$closestPairId = paste(rhapRegionsSelfClosest$V4, rhapRegionsSelfClosest$V8, sep = ";")
+
+rhapRegionsSigSelfClosest$isClosest = rhapRegionsSigSelfClosest$closestPairId %in% rhapRegionsSelfClosest$closestPairId
+
+sameTargetTest = aafInt800regions[aafInt800regions$sig == "sig",] %>% group_by(ident) %>% summarise(test = paste(unique(careClosestCareTargetsSame), collapse = ","))
+sameTargetTest = as.data.frame(sameTargetTest)
+sameTargetTest$sameTarget = "FALSE"
+sameTargetTest[sameTargetTest$test != "FALSE",]$sameTarget = "TRUE"
+
+rhapRegionsSigSelfClosest$sameTarget = sameTargetTest[match(rhapRegionsSigSelfClosest$V4, sameTargetTest$ident),3]
+
+rhapRegionsSigSelfClosest$aTargets = sigRegionTargets[match(rhapRegionsSigSelfClosest$V4, sigRegionTargets$ident),2]
+rhapRegionsSigSelfClosest$bTargets = sigRegionTargets[match(rhapRegionsSigSelfClosest$V8, sigRegionTargets$ident),2] 
+
+pdf("weirdUwePlot.pdf")
+ggplot(rhapRegionsSigSelfClosest, aes(x=isClosest, y=log10(V9),color=sameTarget)) + geom_jitter() + theme_minimal()
+dev.off()
+
+```
+
+##back to krab
+```{bash}
+ibedtools intersect -wa -wb -a KRAB_guide_results_sig.bed -b <(perl -lane 'print "$F[0]\t$F[1]\t$F[2]\t$F[6]\t$F[7]" if $F[7] < 0.05;' ../regionGene.bedpe)
+chr4    40908179        40908199        chr4.40908179.+ -7.05528243550119       1.39870887797014e-33    chr4    40908097        40909118        Region_78;RPS7P7        0.0251420847662003
+chr4    41835720        41835740        chr4.41835716.+ -1.69743722997957       0.043925862663499       chr4    41831511        41835740        Region_537;PHOX2B       4.14560633027191e-14
+chr4    41835720        41835740        chr4.41835716.+ -1.69743722997957       0.043925862663499       chr4    41831511        41835740        Region_537;LINC00682    0.00368855458481396
+chr4    42302486        42302506        chr4.42302548.+ -3.28540221886225       3.27964390681318e-07    chr4    42302180        42303135        Region_738;SHISA3       0.00202223880292417
+chr4    42425831        42425851        chr4.42425831.- -1.74048007834244       0.0372293376985595      chr4    42425513        42427164        Region_803;SHISA3       0.00159554362702583
+chr4    42481335        42481355        chr4.42481298.+ -2.16146342269412       0.00379530940783988     chr4    42481173        42481736        Region_828;SHISA3       1.65921753635047e-06
+chr4    42481335        42481355        chr4.42481298.+ -2.16146342269412       0.00379530940783988     chr4    42481173        42481736        Region_828;TLR6 0.00297221995518202
+chr4    42481335        42481355        chr4.42481298.+ -2.16146342269412       0.00379530940783988     chr4    42481173        42481736        Region_828;LINC02265    0.00297221995518202
+chr4    42496384        42496404        chr4.42496415.+ 2.49608121963491        0.0473383012637555      chr4    42496111        42496435        Region_831;SHISA3       5.57899763638636e-10
+chr4    42503878        42503898        chr4.42503878.+ -2.01837852931485       0.00968553290281168     chr4    42503606        42504060        Region_836;ATP8A1       2.08927354522485e-06
+
+perl -lane 'print $_ if $F[11] < 0.05;' KRAB_guide_results.txt | cut -f8 | grep -v NAME > sig_KRAB_guideIds.txt
+while read p;do grep "$p" name_key_rhapsody.txt;done <sig_KRAB_guideIds.txt 
+#chr4.40886174.- TGGAAAGGACGAAACACCGAAAACATAATTTCTGAACACGTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGGC                                                      X35 # not in rhap
+#chr4.41382572.+ TGGAAAGGACGAAACACCGTAGGTGTGGAAAGGAGGGGAGTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGGC                                                      X508 # in rhap
+#chr4.41433798.+ TGGAAAGGACGAAACACCGTCCAGATTTGAGGGAAGTCGGTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGGC                                                      X510 # in rhap
+#chr4.41990886.- TGGAAAGGACGAAACACCGAGGCTGAACTGGAAAGGCGGGTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGGC                                                      X1019 #in rhap
+#chr4.42425831.- TGGAAAGGACGAAACACCGTGCCTTGAGAAGGGGCAGTGGTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGGC                                                      X920 # in rhap
+#chr4.42473506.+ TGGAAAGGACGAAACACCGTTGTGAGCTTGGTCTCAGAGGTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGGC                                                      X346 # in rhap
+#chr4.42481298.+ TGGAAAGGACGAAACACCGGACAAGATAACCCAGGAAGGGTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGGC                                                      X925 # in rhap
+#chr4.42496415.+ TGGAAAGGACGAAACACCGAATGCAGAAGCAAAGCACGCGTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGGC                                                      X354 # in rhap
+#chr4.42503878.+ TGGAAAGGACGAAACACCGTAGACACCTAGGGAAGGTGCGTTTTAGAGCTAGAAATAGCAAGTTAAAATAAGGC                                                      X358 # in rhap
+
+```
+
+##bulk promoter hits
+```{bash}
+bedtools intersect -u -a <(bedtools slop -b 500 -i ../sig_noNA_bulkRegions.bed -g /fast/AG_Ohler/Scott/hg38/hg38.chrom.sizes) -b ../gencode.v24.annotation.gtf.genes.bed_true5end.bed > bulkRegionsSlop500PromoterHits.bed
+
+./SubsetColXFromColY.pl bulkRegionsSlop500PromoterHits.bed ../../../Analysis/new/regions_results.txt 3 0 | cut -d ' ' -f1,3,4 | sort -u
+#Region_1 2.778364648627946e-10 -0.025566425702765946
+#Region_234 0.0014880800950941922 -0.023984568575235607
+#Region_256 1.6444611498782617e-13 -0.023072612453615953
+#Region_272 7.342784677877018e-4 -0.05118174726236607
+#Region_273 0.0040117111984585615 -0.02033606062284719
+#Region_35 0.0034342529391672037 -0.015572023024381567
+#Region_494 4.096257927023982e-59 -0.041193128470207827
+#Region_504 7.93692633270191e-9 -0.027212203238187675
+#Region_518 0.0021815609728705826 -0.03216907288641364
+#Region_566 3.054761843954166e-7 -0.020014680991815286
+#Region_577 3.4343825164409367e-8 -0.03436530575593351
+#Region_582 7.889928622735733e-8 -0.030176092373576865
+#Region_603 8.851237480456368e-6 -0.038575252792186696
+#Region_609 3.5573274472801413e-6 -0.024681271104997474
+#Region_671 2.190652713213877e-20 -0.026210040794922413
+#Region_786 9.471656644591901e-4 -0.02082253991162549
+#Region_790 3.004129946039519e-7 -0.02409076319520438
+#Region_903 7.825126850946496e-4 -0.02995195779513215
+#Region_921 1.2962560918224394e-7 -0.028932682679010474
+
+```
+##do stat test on tesla histone mod box plots
+```{r}
+library(ggpubr)
+
+
+pdf(file = "sigNonSigAtacBoxiWithStat.pdf")
+ggplot(aafInt800regionsMinFdr, aes(x=sig, y=regionAtac)) + geom_boxplot(outlier.shape = NA) + stat_compare_means(label.y = 500,method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2))) + theme_classic() + coord_cartesian(ylim = c(0,600))
+dev.off()
+
+pdf(file = "sigNonSig27acBoxWithStat.pdf")
+ggplot(aafInt800regionsMinFdr, aes(x=sig, y=regionH3K27ac)) + geom_boxplot(outlier.shape = NA) + stat_compare_means(label.y = 100,method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2))) + theme_classic() + coord_cartesian(ylim = c(0,300))
+dev.off()
+
+pdf(file = "sigNonSigMe1BoxWithStat.pdf")
+ggplot(aafInt800regionsMinFdr, aes(x=sig, y=regionH3K4me1)) + geom_boxplot(outlier.shape = NA) + stat_compare_means(label.y = 150,method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2))) + theme_classic() + coord_cartesian(ylim = c(0,175))
+dev.off()
+
+pdf(file = "sigNonSigMe3BoxWithStat.pdf")
+#ggplot(aafInt800regionsMinFdr, aes(x=sig, y=regionH3K4me3)) + geom_boxplot(outlier.shape = NA) + stat_compare_means(label.y = 10.5,method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2))) + theme_classic() + coord_cartesian(ylim = c(0,12))
+ggplot(aafInt800regionsMinFdr, aes(x=sig, y=regionH3K4me3)) + geom_boxplot(outlier.shape = NA) + stat_compare_means(label.y.npc = "top",method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2))) + theme_classic()
+dev.off()
+
+
+```
+
+##histogram of guides per care
+```{r}
+guideNumberPerCare = bulkRegionsBinsGuides %>% group_by(Region_name) %>% summarise(n = n())
+pdf(file="guideNumberPerCareHist.pdf")
+ggplot(guideNumberPerCare, aes(n)) + geom_histogram() + theme_classic()
+dev.off()
+
+bulkRegions$width = bulkRegions$Region_end - bulkRegions$Region_start
+
+bulkRegions$guideNum = guideNumberPerCare[match(bulkRegions$Region_name, guideNumberPerCare$Region_name), 2]
+bulkRegionsNoNA = subset(bulkRegions, bulkRegions$Region_pvalue != "NA")
+
+
+pdf(file="guideNumberPerCareVsWidthHexbin.pdf")
+
+
+```
+
+##do stat tests on bulk evidence classes
+```{r}
+
+pdf(file="bulkFdrByEvidenceBoxWithStats.pdf")
+ggplot(subset(regionsMeulemanDhsEpiMapCreClosest, regionsMeulemanDhsEpiMapCreClosest$sig == "sig"), aes(x=evidence, y=-log10(fdr))) + geom_boxplot() + stat_compare_means(label.y.npc = "top",method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2), c(1,3),c(2,3))) + theme_classic() 
+dev.off()
+#+ coord_cartesian(ylim = c(0,12))
+#dev.off()
+
+pdf("bulkSlopeByEvidenceBoxWithStats.pdf")
+ggplot(subset(regionsMeulemanDhsEpiMapCreClosest, regionsMeulemanDhsEpiMapCreClosest$sig == "sig"), aes(x=evidence, y=slope)) + geom_boxplot() + stat_compare_means(label.y.npc = "top",method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2), c(1,3),c(2,3))) + theme_classic()
+dev.off()
+
+```
+
+
+
