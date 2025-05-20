@@ -1,0 +1,1192 @@
+---
+title: "analysis1222"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+.libPaths(c("/home/slacadie/.guix-profile/site-library"))
+`%notin%` <- Negate(`%in%`)
+library(tidyr)
+library(dplyr)
+library(RColorBrewer)
+```
+
+##prepare gene annotation
+```{bash}
+perl -lane 'my @name = split(/\"/,$F[15]);my $start = $F[3] - 1;print "$F[0]\t$start\t$F[4]\t$name[1]\t\.\t$F[6]" if $F[2] eq "gene";' gencode.v24.annotation.gtf > gencode.v24.annotation.gtf.genes.bed
+./BedTo5end.pl gencode.v24.annotation.gtf.genes.bed
+
+perl -lane 'my @name = split(/\"/,$F[15]);my @id = split(/\"/, $F[9]);my @eid = split(/\./,$id[1]);my $start = $F[3] - 1;print "$F[0]\t$start\t$F[4]\t$name[1]|$eid[0]\t\.\t$F[6]" if $F[2] eq "gene";' gencode.v24.annotation.gtf > gencode.v24.annotation.gtf.genesWithEns.bed
+./BedTo5end.pl gencode.v24.annotation.gtf.genesWithEns.bed
+```
+##bulk results return
+```{r}
+bulkRegionsBinsGuides = read.table("regions_bins_guides_results.txt", header=T)
+bulkRegions = unique(bulkRegionsBinsGuides[,1:7])
+
+write.table(bulkRegions[,c(5,6,7,1,3)], file="./bulkRegions.bed", col.names = F, row.names = F, quote = F, sep = "\t")
+```
+
+```{bash}
+for f in bulk*bed; do grep -v NA "$f" > noNA_"$f"; done
+for f in noNA*bed;do bedtools intersect -c -a "$f" -b gencode.v24.annotation.gtf.genes.bed > "$f"_geneIntersect.bed;done
+for f in noNA*Intersect.bed;do bedtools closest -t "first" -d -a <(bedtools sort -i "$f") -b <(bedtools sort -i gencode.v24.annotation.gtf.genes.bed_true5end.bed) > "$f"_closestTss.bed;done
+
+perl -lane 'print $_ if $F[4] < 0.05;' noNA_bulkRegions.bed > sig_noNA_bulkRegions.bed
+```
+
+```{r}
+bulkRegionsGeneTss = read.csv("./noNA_bulkRegions.bed_geneIntersect.bed_closestTss.bed", sep = "\t", header = F)
+
+bulkRegionsGeneTss$prox = "proximal"
+bulkRegionsGeneTss[bulkRegionsGeneTss$V6 > 0 & bulkRegionsGeneTss$V13 > 500,]$prox = "intragenic"
+bulkRegionsGeneTss[bulkRegionsGeneTss$V6 == 0 & bulkRegionsGeneTss$V13 > 500,]$prox = "intergenic"
+bulkRegionsGeneTss$prox = factor(bulkRegionsGeneTss$prox)
+
+bulkProxList = list("regions" = bulkRegionsGeneTss[bulkRegionsGeneTss$V5 < 0.05,"prox"])
+meltedBulkProxList = melt(bulkProxList)
+meltedBulkProxList$L1 = factor(meltedBulkProxList$L1, levels = c("regions"))
+#Figure 1H
+pdf("bulkSigRegionsTssAnnotationsBarRedo.pdf")
+ggplot(meltedBulkProxList, aes(x=L1, fill=value)) + geom_bar(position = "fill")
+dev.off()
+
+```
+
+##epiMap
+```{bash}
+wget https://www.meuleman.org/DHS_Index_and_Vocabulary_hg38_WM20190703.txt.gz
+
+wget https://personal.broadinstitute.org/cboix/epimap/mark_matrices/ENH_masterlist_indices_0indexed.tsv
+
+wget https://personal.broadinstitute.org/cboix/epimap/mark_matrices/PROM_masterlist_indices_0indexed.tsv
+
+wget https://personal.broadinstitute.org/cboix/epimap/mark_matrices/DYADIC_masterlist_indices_0indexed.tsv
+```
+
+```{r}
+meulemanDHS = read.table("./DHS_Index_and_Vocabulary_hg38_WM20190703.txt", header = T, sep = "\t")
+
+epiMapDhs = read.csv("./masterlist_DHSs_733samples_WM20180608_all_coords_hg19.core.srt.txt", header = F, sep = "\t")
+epiMapChunkToDhsId = read.csv("./masterlist_DHSs_733samples_WM20180608_all_chunkIDs2indexIDs.txt", header = F, sep = "\t")
+epiMapDhs$id = epiMapChunkToDhsId[match(epiMapDhs$V4, epiMapChunkToDhsId$V2),1]
+epiMapPromIndex = read.csv("./PROM_masterlist_indices_0indexed.tsv", header = F)
+epiMapEnhIndex = read.csv("./ENH_masterlist_indices_0indexed.tsv", header = F)
+epiMapDyadIndex = read.csv("./DYADIC_masterlist_indices_0indexed.tsv", header = F)
+epiMapEnhIndex = epiMapEnhIndex + 1
+epiMapPromIndex = epiMapPromIndex + 1
+epiMapDyadIndex = epiMapDyadIndex + 1
+
+epiMapDhs$cre = "none"
+epiMapDhs[c(epiMapEnhIndex$V1),]$cre = "enh"
+epiMapDhs[c(epiMapPromIndex$V1),]$cre = "prom"
+epiMapDhs[c(epiMapDyadIndex$V1),]$cre = "dyad"
+
+
+meulemanDHS$cre = epiMapDhs[match(meulemanDHS$identifier, epiMapDhs$id), "cre"]
+
+write.table(meulemanDHS, file = "./meulemanDHS_epiMapCre.txt", quote = F, sep = "\t", col.names = F, row.names = F)
+```
+
+```{bash}
+bedtools closest -d -t "first" -a noNA_bulkRegions.bed -b meulemanDHS_epiMapCre.txt > noNA_bulkRegions.closest.meulemanDHS_epiMapCre.txt
+```
+
+```{r}
+regionsMeulemanDhsEpiMapCreClosest = read.table("./noNA_bulkRegions.closest.meulemanDHS_epiMapCre.txt", sep = "\t")
+colnames(regionsMeulemanDhsEpiMapCreClosest) = c("chr", "start", "end", "id", "fdr", "seqname", "startDHS", "endDHS", "identifier", "mean_signal", "numsamples" , "summit", "core_start", "core_end", "component", "cre", "dist")
+
+regionsMeulemanDhsEpiMapCreClosest$close = "no"
+regionsMeulemanDhsEpiMapCreClosest[regionsMeulemanDhsEpiMapCreClosest$dist <= 250,]$close = "yes"
+regionsMeulemanDhsEpiMapCreClosest$class = "none"
+regionsMeulemanDhsEpiMapCreClosest[regionsMeulemanDhsEpiMapCreClosest$dist <= 250 & regionsMeulemanDhsEpiMapCreClosest$cre == "enh",]$class = "enh"
+regionsMeulemanDhsEpiMapCreClosest[regionsMeulemanDhsEpiMapCreClosest$dist <= 250 & regionsMeulemanDhsEpiMapCreClosest$cre == "prom" | regionsMeulemanDhsEpiMapCreClosest$dist <= 250 & regionsMeulemanDhsEpiMapCreClosest$cre == "dyad",]$class = "prom"
+regionsMeulemanDhsEpiMapCreClosest[regionsMeulemanDhsEpiMapCreClosest$dist <= 250 & regionsMeulemanDhsEpiMapCreClosest$cre == "none",]$class = "open"
+regionsMeulemanDhsEpiMapCreClosest$class = factor(regionsMeulemanDhsEpiMapCreClosest$class)
+
+regionsMeulemanDhsEpiMapCreClosest$width = regionsMeulemanDhsEpiMapCreClosest$end - regionsMeulemanDhsEpiMapCreClosest$start
+
+#Figure 1F
+pdf(file = "sigBulkRegionWidth.pdf")
+ggplot(subset(regionsMeulemanDhsEpiMapCreClosest, regionsMeulemanDhsEpiMapCreClosest$fdr < 0.05), aes(x=log10(width))) + geom_histogram() + theme_classic()
+dev.off()
+
+```
+
+##debugged rhapsody results
+```{r}
+new_bulk = read.csv("regions_bins_guides_results.txt", header=T, sep="\t")
+
+newRhap = read.csv("new_rhapsody_regions_bins_guides_results.txt", header = T, sep = "\t")
+krabRegions = unique(newRhap[grep("KRAB", newRhap$class),"Region_name"])
+krabVprOverlapRegions = unique(newRhap[newRhap$Region_name %in% krabRegions & newRhap$class == "VPR_depleater","Region_name"])
+krabRemoveRegions = krabRegions[krabRegions %notin% krabVprOverlapRegions]
+
+geneStarts = read.csv("./gencode.v24.annotation.gtf.genes.bed_true5end.bed", sep = "\t", header = F)
+colnames(geneStarts) = c("chr", "start", "end", "name", "score", "strand")
+geneStarts[nrow(geneStarts) + 1,] <- c("chr4", "42151027","42151028", "AC111006.1", ".", "+")
+geneStarts$name = factor(geneStarts$name)
+levels(geneStarts$name)[levels(geneStarts$name)=="AC195454.1"] <- "LINC02265"
+levels(geneStarts$name)[levels(geneStarts$name)=="UCHL1-AS1"] <- "UCHL1.AS1"
+levels(geneStarts$name)[levels(geneStarts$name)=="LVCAT1"] <- "LINC02475"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-663P9.2"] <- "NDUFB4P12"
+levels(geneStarts$name)[levels(geneStarts$name)=="ZBTB12P1"] <- "ZBTB12BP"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-700J17.2"] <- "AC096586.1"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-700J17.1"] <- "AC096586.2"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-814H16.2"] <- "AC106052.1"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-109E24.1"] <- "AC096734.1"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-333E13.2"] <- "AC098591.2"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-395I6.3"] <- "AC095057.3"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-324J13.1"] <- "AC098590.1"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-472B18.1"] <- "AC021148.1"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-539G18.3"] <- "AC108471.2"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-227F19.1"] <- "AC105389.3"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-109E24.2"] <- "AC096734.2"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-360F5.3"] <- "AC079921.2"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-63A11.1"] <- "AC024022.1"
+levels(geneStarts$name)[levels(geneStarts$name)=="RP11-457P14.5"] <- "AC108210.1"
+
+geneStartsTlr1fixed = geneStarts
+geneStartsTlr1fixed[geneStartsTlr1fixed$name == "TLR1",2] = 38804790
+geneStartsTlr1fixed[geneStartsTlr1fixed$name == "TLR1",3] = 38804791
+
+ensToName = read.table("./ensGeneToName.txt")
+ensToName[nrow(ensToName) + 1,] <- c("ENSG00000285454", "AC111006.1")
+ensToName$V2 = factor(ensToName$V2)
+levels(ensToName$V2)[levels(ensToName$V2)=="AC195454.1"] <- "LINC02265"
+levels(ensToName$V2)[levels(ensToName$V2)=="UCHL1-AS1"] <- "UCHL1.AS1"
+levels(ensToName$V2)[levels(ensToName$V2)=="LVCAT1"] <- "LINC02475"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-663P9.2"] <- "NDUFB4P12"
+levels(ensToName$V2)[levels(ensToName$V2)=="ZBTB12P1"] <- "ZBTB12BP"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-700J17.2"] <- "AC096586.1"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-700J17.1"] <- "AC096586.2"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-814H16.2"] <- "AC106052.1"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-109E24.1"] <- "AC096734.1"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-333E13.2"] <- "AC098591.2"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-395I6.3"] <- "AC095057.3"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-324J13.1"] <- "AC098590.1"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-472B18.1"] <- "AC021148.1"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-539G18.3"] <- "AC108471.2"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-227F19.1"] <- "AC105389.3"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-109E24.2"] <- "AC096734.2"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-360F5.3"] <- "AC079921.2"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-63A11.1"] <- "AC024022.1"
+levels(ensToName$V2)[levels(ensToName$V2)=="RP11-457P14.5"] <- "AC108210.1"
+
+geneStartsWithEns = read.csv("./gencode.v24.annotation.gtf.genesWithEns.bed_true5end.bed", header = F, sep = "\t")
+geneStartsWithEns = geneStartsWithEns %>% separate(4, c("name", "id"), sep = "\\|")
+
+
+
+
+rhapTargets = read.csv("TARGET_names_coordinates_barcodes_referece_updated.bed.txt", header = F, sep = "\t")
+
+aafInt800 = read.csv("TAP_DE_aaf800_SCT_202212.csv")
+aafInt800$pairId = paste(aafInt800$ident, aafInt800$gene, sep = ";")
+aafInt800regions = aafInt800[grep("Region", aafInt800$ident),]
+aafInt800regions$regionChr = newRhap[match(aafInt800regions$ident, newRhap$Region_name),5]
+aafInt800regions$regionStart = newRhap[match(aafInt800regions$ident, newRhap$Region_name),6]
+aafInt800regions$regionEnd = newRhap[match(aafInt800regions$ident, newRhap$Region_name),7]
+aafInt800regions$geneTssChr = geneStartsTlr1fixed[match(aafInt800regions$gene, geneStartsTlr1fixed$name),1]
+aafInt800regions$geneTssStart = geneStartsTlr1fixed[match(aafInt800regions$gene, geneStartsTlr1fixed$name),2]
+aafInt800regions$geneTssEnd = geneStartsTlr1fixed[match(aafInt800regions$gene, geneStartsTlr1fixed$name),3]
+aafInt800regions$width = aafInt800regions$regionEnd - aafInt800regions$regionStart
+
+write.table(aafInt800regions[,c(11:16,10,5)], file = "regionGene.bedpe", quote = F, sep = "\t", col.names = F, row.names = F)
+
+aafInt800regions$class = regionsMeulemanDhsEpiMapCreClosest[match(aafInt800regions$ident, regionsMeulemanDhsEpiMapCreClosest$id),"class"]
+aafInt800regions$tissue = regionsMeulemanDhsEpiMapCreClosest[match(aafInt800regions$ident, regionsMeulemanDhsEpiMapCreClosest$id),"component"]
+
+aafInt800regions$sig = "nonSig"
+aafInt800regions[aafInt800regions$p_val_adj < 0.05,21] = "sig"
+
+
+```
+##tag KRAB-only regions
+```{r}
+aafInt800regions$krabOnly = "no"
+aafInt800regions[aafInt800regions$ident %in% krabRemoveRegions, "krabOnly"] = "yes"
+```
+
+
+##chr rna
+```{bash}
+paste <(cut -f1,4 chr_A_ReadsPerGene.out.tab | grep -v N_) <(cut -f1,4 chr_B_ReadsPerGene.out.tab | grep -v N_) > geneCountsChrAchrB.txt
+```
+
+```{r}
+
+chrRnaGeneCounts = read.csv("geneCountsChrAchrB.txt", header=F, sep="\t")
+chrRnaGeneCounts$mean = rowMeans(chrRnaGeneCounts[,c(2,4)])
+chrRnaGeneCounts = chrRnaGeneCounts %>% separate(1, "ensId", sep = "\\.")
+
+rhapCaptured = data.frame("gene" = unique(aafInt800$gene))
+rhapCaptured$ensId = ensToName[match(rhapCaptured$gene, ensToName$V2),1]
+rhapCaptured$meanChrCounts = chrRnaGeneCounts[match(rhapCaptured$ensId, chrRnaGeneCounts$ensId),5]
+
+unknownTargets = read.csv("./unknownGeneBiomart.txt", header = F, sep = "\t")
+unknownTargets$name = ensToName[match(unknownTargets$V1, ensToName$V1),2]
+colnames(unknownTargets) = c("ensGeneId","ensGeneIdVer", "ensTransId", "ensTransIdVer", "name")
+
+rhapNotCaptured = rhapTargets[rhapTargets$V4 %notin% rhapCaptured$gene,]
+colnames(rhapNotCaptured) = c("chr", "start", "end", "name", "strand", "ensTransIdVer", "loc", "lengthMaybe")
+rhapNotCaptured[rhapNotCaptured$ensTransIdVer %in% unknownTargets$ensTransIdVer,]$name = as.character(unknownTargets[unknownTargets$ensTransIdVer %in% rhapNotCaptured$ensTransIdVer,]$name)
+rhapNotCaptured$ensGeneId = ensToName[match(rhapNotCaptured$name, ensToName$V2),1]
+rhapNotCaptured$meanChrCounts = chrRnaGeneCounts[match(rhapNotCaptured$ensGeneId, chrRnaGeneCounts$ensId),5]
+
+chrRnaRhapList = list("captured" = rhapCaptured$meanChrCounts, "notCaptured" = rhapNotCaptured$meanChrCounts)
+meltedChrRnaRhapList = melt(chrRnaRhapList)
+
+#Figure 2C
+
+pdf("chrRnaCapNotCapBox.pdf")
+ggplot(meltedChrRnaRhapList, aes(x=L1, y=log10(value+1))) + geom_boxplot(outlier.shape = NA) +  theme_classic()
+dev.off()
+
+aafInt800regions$geneChrRna = rhapCaptured[match(aafInt800regions$gene,rhapCaptured$gene),3]
+```
+
+##focus on bulk promoter hits
+```{bash}
+bedtools intersect -u -a gencode.v24.annotation.gtf.genes.bed_true5end.bed -b <(bedtools slop -b 500 -i sig_noNA_bulkRegions.bed -g hg38.chrom.sizes) | cut -f4 > bulkRegionPromHitGenes.txt
+```
+
+```{r}
+bulkRegionPromoterHits = read.csv("bulkRegionPromHitGenes.txt", header = F, sep = "\t")
+bulkRegionPromoterHits = bulkRegionPromoterHits[,1]
+bulkRegionPromoterHits[4] = "UCHL1.AS1"
+bulkRegionPromoterHits[8] = "AC105389.3"
+bulkRegionPromoterHits[12]= "AC108210.1"
+bulkRegionPromoterHits[18]= "AC024022.1"
+bulkRegionPromoterHits[21]= "AC096734.2"
+bulkRegionPromoterHits[22]= "AC096734.1"
+
+#["RP11-700J17.2"] <- "AC096586.1"
+#["RP11-700J17.1"] <- "AC096586.2"
+#["RP11-814H16.2"] <- "AC106052.1"
+#["RP11-109E24.1"] <- "AC096734.1"
+#["RP11-333E13.2"] <- "AC098591.2"
+#["RP11-395I6.3"] <- "AC095057.3"
+#["RP11-324J13.1"] <- "AC098590.1"
+#["RP11-472B18.1"] <- "AC021148.1"
+#["RP11-539G18.3"] <- "AC108471.2"
+#["RP11-227F19.1"] <- "AC105389.3"
+#["RP11-109E24.2"] <- "AC096734.2"
+#["RP11-360F5.3"] <- "AC079921.2"
+#["RP11-63A11.1"] <- "AC024022.1"
+#["RP11-457P14.5"] <- "AC108210.1"
+
+
+aafInt800regions$bulkPromHit = ifelse(aafInt800regions$gene %in% bulkRegionPromoterHits,"yes", "no")
+
+# Figure 2J
+pdf(file = "rhapSigRegionsBulkPromAdjPvalBox.pdf")
+ggplot(subset(aafInt800regions, aafInt800regions$sig == "sig"), aes(y=-log10(p_val_adj), x=bulkPromHit)) + geom_boxplot(outlier.shape = NA) + theme_classic() + coord_cartesian(ylim = c(0,20))
+dev.off()
+
+pdf(file = "rhapSigRegionsBulkPromLfcBox.pdf")
+ggplot(subset(aafInt800regions, aafInt800regions$sig == "sig"), aes(y=avg_logFC, x=bulkPromHit)) + geom_boxplot(outlier.shape = NA) + theme_classic() + coord_cartesian(ylim = c(-0.5,1))
+dev.off()
+```
+
+##linear dist
+```{r}
+upDist = abs(as.numeric(aafInt800regions$regionEnd) - as.numeric(aafInt800regions$geneTssStart))
+downDist = abs(as.numeric(aafInt800regions$geneTssEnd) - as.numeric(aafInt800regions$regionStart))
+distMat = data.frame("upDist" = upDist, "downDist" = downDist)
+minDist = apply(distMat, 1, min)
+aafInt800regions$dist = log10(minDist)
+
+
+# Figure 3A
+pdf(file = "linDistSigNonsigBox.pdf")
+ggplot(aafInt800regions, aes(y=dist, x=sig)) + geom_boxplot(outlier.shape = NA) + 
+stat_compare_means(label.y = 7.5,method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2)))+
+theme_classic()
+dev.off()
+
+# Figure S3A
+pdf(file = "linDistAdjPvalSigNonSigScatter.pdf")
+ggplot(aafInt800regions, aes(x=dist, y=-log10(p_val_adj), color=sig)) + geom_point() + theme_classic()
+dev.off()
+
+```
+
+##imrHic
+```{r}
+gRhapRegionGrhapGene = aafInt800regions[,c(11:16)]
+colnames(gRhapRegionGrhapGene) <- c("chrom1", "start1", "end1", "chrom2", "start2", "end2")
+gRhapRegionGrhapGene$start1 = gRhapRegionGrhapGene$start1 + floor((gRhapRegionGrhapGene$end1-gRhapRegionGrhapGene$start1)/2)
+gRhapRegionGrhapGene$start2 = as.numeric(gRhapRegionGrhapGene$start2) + floor((as.numeric(gRhapRegionGrhapGene$end2)-as.numeric(gRhapRegionGrhapGene$start2))/2)
+gRhapRegionGrhapGene$end1 = gRhapRegionGrhapGene$start1+1
+gRhapRegionGrhapGene$end2 = gRhapRegionGrhapGene$start2+1
+write.table(gRhapRegionGrhapGene, file="gRhapRegionGrhapGene.txt", quote = F, col.names = F, row.names = F, sep = "\t")
+
+gRhapRegionGrhapGeneWithId = gRhapRegionGrhapGene
+gRhapRegionGrhapGeneWithId$pairId = aafInt800regions$pairId
+write.table(gRhapRegionGrhapGeneWithId, file="gRhapRegionGrhapGeneWithId.txt", quote = F, col.names = F, row.names = F, sep = "\t")
+```
+
+```{bash}
+perl -lane 'if($F[4] < $F[1]){print "$F[3]\t$F[4]\t$F[5]\t$F[0]\t$F[1]\t$F[2]";}else{print $_}' gRhapRegionGrhapGene.txt > reordered_gRhapRegionGrhapGene.txt
+
+```
+
+```{r}
+reordered = read.csv("./reordered_gRhapRegionGrhapGene.txt", header = F, sep = "\t")
+g1 = reordered[,1:3]
+g2 = reordered[,4:6]
+colnames(g1) = c("chrom", "start", "end")
+colnames(g2) = c("chrom", "start", "end")
+library(misha)
+library(shaman)
+gsetroot('/fast/AG_Ohler/Scott/hg38shaman/hg38')
+gdb.init('/fast/AG_Ohler/Scott/hg38shaman/hg38', rescan = TRUE)
+#shaman_generate_feature_grid_scott4(g1, g2, "imrHic_obs", "imrHic_obs_shuffle", score_track_nm = "imrHic_score", score_filter = -101, range=12500, resolution=500, max_dist=1e7, min_dist=2.5e4)
+gvtrack.create("v_fg_max_score", "imrHic_score", "max")
+filter_vtrack = "v_fg_max_score"
+grid = cbind(g1, g2)
+colnames(grid) <- c("chrom1", "start1", "end1", "chrom2", "start2", "end2")
+band = c(-1e9, -0)
+expand = seq(0-12500, 12500, by=500)
+gvtrack.iterator.2d(filter_vtrack, sshift1=min(expand), eshift1=max(expand), sshift2=min(expand), eshift2=max(expand))
+gextract(filter_vtrack, intervals=grid, iterator=grid, band=band, file="scores.txt")
+aafInt800regionsShamanScores25kb = read.table("scores.txt", header = T)
+aafInt800regions$hicScore = aafInt800regionsShamanScores25kb$v_fg_max_score
+
+aafInt800regions$hicScore = as.numeric(aafInt800regions$hicScore)
+aafInt800regions$hicInteracts = "no"
+aafInt800regions[aafInt800regions$hicScore >= 25 & !is.na(aafInt800regions$hicScore),]$hicInteracts = "yes"
+
+```
+
+##capture-c score
+```{bash}
+perl -lane 'my $start1 = $F[2] - 1;my $start2 = $F[5] - 1;print "$F[0]\t$start1\t$F[2]\t$F[3]\t$start2\t$F[5]\t$F[6]\t$F[7]";' rhapsodyCapture.bedpe > rhapsodyCapture.fends.bedpe
+
+bedtools pairtopair -slop 12500 -a gRhapRegionGrhapGeneWithId.txt -b rhapsodyCapture.fends.bedpe > gRhapRegionGrhapGeneWithId_rhapsodyCapture.fends_slop12.5kb_intersect.txt
+```
+
+```{r}
+aafInt800RhapCapIntersect = read.csv("./gRhapRegionGrhapGeneWithId_rhapsodyCapture.fends_slop12.5kb_intersect.txt", header = F, sep = "\t")
+aafInt800RhapCapIntersect = aafInt800RhapCapIntersect[,-c(16,17)]
+aafInt800RhapCapIntersectMaxScore = aafInt800RhapCapIntersect %>% group_by_at(vars(c(1,2,3,4,5,6,7))) %>% summarise(maxCapcScore=paste0(max(V15)))
+colnames(aafInt800RhapCapIntersectMaxScore) = c("chr", "start", "end", "geneTssChr", "geneTssStart", "geneTssEnd", "pairId", "maxCapcScore")
+
+aafInt800RhapCapIntersectMaxScoreLoj = subset(aafInt800regions, aafInt800regions$pairId %notin% aafInt800RhapCapIntersectMaxScore$pairId)[,c(11:16,10)]
+aafInt800RhapCapIntersectMaxScoreLoj$maxCapcScore = "NA"
+colnames(aafInt800RhapCapIntersectMaxScoreLoj) = c("chr", "start", "end", "geneTssChr", "geneTssStart", "geneTssEnd", "pairId", "maxCapcScore")
+aafInt800RhapCapIntersectMaxScoreLoj = rbind(aafInt800RhapCapIntersectMaxScoreLoj, aafInt800RhapCapIntersectMaxScore)
+
+aafInt800regions$maxCapcScore = aafInt800RhapCapIntersectMaxScoreLoj[match(aafInt800regions$pairId, aafInt800RhapCapIntersectMaxScoreLoj$pairId),8]
+
+#aafInt800regions[is.na(aafInt800regions$maxCapcScore), "maxCapcScore"] = 0
+aafInt800regions$capcInteracts = "no"
+aafInt800regions[aafInt800regions$maxCapcScore > 3,]$capcInteracts = "yes"
+aafInt800regions[aafInt800regions$maxCapcScore == "NA",]$capcInteracts = "no"
+
+aafInt800regions$interacts = "no"
+aafInt800regions[aafInt800regions$capcInteracts == "yes" | aafInt800regions$hicInteracts == "yes",]$interacts = "yes"
+
+#Figure 3E
+
+pdf("sigNonSigCapcBox.pdf")
+ggplot(aafInt800regions, aes(x=sig, y=as.numeric(maxCapcScore))) + geom_boxplot(outlier.shape = NA) + 
+stat_compare_means(label.y = 11,method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2)))+
+theme_classic() + 
+coord_cartesian(ylim=c(0,14))
+dev.off()
+
+```
+
+##eipMap links
+```{bash}
+cat ../epiMapLinks/*tsv | grep -v gene | awk -F'\t' '{gsub(/ /,"_",$4);print $5"\t"$6"\t"$7"\t"$1";"$4"\t"$3}' > ../epiMapLinks/allLinksWithTissueAndScore.bed
+
+liftOver ../epiMapLinks/allLinksWithTissueAndScore.bed hg19ToHg38.over.chain.gz ../epiMapLinks/allLinksWithTissueAndScore.hg38.bed unmapped
+```
+
+```{r}
+allLinksWithTissueAndScore = read.csv("../epiMapLinks/allLinksWithTissueAndScore.hg38.bed", header = F, sep = "\t")
+allLinksWithTissueAndScore = allLinksWithTissueAndScore %>% separate(4, c("gene", "tissue"), sep = ";")
+
+##allLinksWithTissueAndScore$names = ensToName[match(allLinksWithTissueAndScore$gene, ensToName$V1), 2]
+allLinksWithTissueAndScore[,c("tssChr", "tssStart", "tssEnd")] = geneStartsWithEns[match(allLinksWithTissueAndScore$gene, geneStartsWithEns$id), 1:3]
+allLinksWithTissueAndScore = allLinksWithTissueAndScore %>% unite("geneTissue", c(4,5), sep = ";", remove = F)
+allLinksWithTissueAndScore$V2 = allLinksWithTissueAndScore$V2 + floor((allLinksWithTissueAndScore$V3-allLinksWithTissueAndScore$V2)/2)
+allLinksWithTissueAndScore$V3 = allLinksWithTissueAndScore$V2+1
+
+write.table(allLinksWithTissueAndScore[,c(1,2,3,8,9,10,4,7)], file = "allLinksWithTissueAndScore.bedpe", quote = F, col.names = F, row.names = F, sep = "\t")
+```
+
+```{bash}
+bedtools pairtopair -slop 2500 -a gRhapRegionGrhapGeneWithId.txt -b allLinksWithTissueAndScore.bedpe > gRhapRegionGrhapGeneWithId.allLinksWithTissueAndScore.5kb.intersect.txt
+```
+
+```{r}
+aafInt800regionsAllLinksWithTissueAndScoreIntersect = read.csv("./gRhapRegionGrhapGeneWithId.allLinksWithTissueAndScore.5kb.intersect.txt", header = F, sep = "\t")
+aafInt800regionsAllLinksWithTissueAndScoreIntersect = aafInt800regionsAllLinksWithTissueAndScoreIntersect[,-c(16,17)]
+aafInt800regionsAllLinksWithTissueAndScoreIntersect = aafInt800regionsAllLinksWithTissueAndScoreIntersect %>% separate(14, c("gene", "tissue"), sep = ";")
+aafInt800regionsAllLinksWithTissueAndScoreIntersectTissueCollapsed = aafInt800regionsAllLinksWithTissueAndScoreIntersect %>% group_by_at(vars(-c("tissue",V15))) %>% summarise(tissueSet=paste0(tissue,collapse = ','), score=paste0(V15, collapse = ','))
+
+aafInt800regionsAllLinksWithTissueAndScoreIntersectEpiMapCollapsedMaxScore = aafInt800regionsAllLinksWithTissueAndScoreIntersect %>% group_by_at(vars(c(1,2,3,4,5,6,7))) %>% summarise(maxEpiMapLinkScore=paste0(max(V15)))
+colnames(aafInt800regionsAllLinksWithTissueAndScoreIntersectEpiMapCollapsedMaxScore) = c("chr", "start", "end", "geneTssChr", "geneTssStart", "geneTssEnd", "pairId", "maxEpiMapLinkScore")
+
+aafInt800regionsAllLinksWithTissueAndScoreIntersectEpiMapCollapsedMaxScoreLoj = subset(aafInt800regions, aafInt800regions$pairId %notin% aafInt800regionsAllLinksWithTissueAndScoreIntersectEpiMapCollapsedMaxScore$pairId)[,c(11:16,10)]
+aafInt800regionsAllLinksWithTissueAndScoreIntersectEpiMapCollapsedMaxScoreLoj$maxEpiMapLinkScore = "NA"
+colnames(aafInt800regionsAllLinksWithTissueAndScoreIntersectEpiMapCollapsedMaxScoreLoj) = c("chr", "start", "end", "geneTssChr", "geneTssStart", "geneTssEnd", "pairId", "maxEpiMapLinkScore")
+aafInt800regionsAllLinksWithTissueAndScoreIntersectEpiMapCollapsedMaxScoreLoj = rbind(aafInt800regionsAllLinksWithTissueAndScoreIntersectEpiMapCollapsedMaxScoreLoj, aafInt800regionsAllLinksWithTissueAndScoreIntersectEpiMapCollapsedMaxScore)
+
+aafInt800regions$maxEpiMapLinkScore = aafInt800regionsAllLinksWithTissueAndScoreIntersectEpiMapCollapsedMaxScoreLoj[match(aafInt800regions$pairId, aafInt800regionsAllLinksWithTissueAndScoreIntersectEpiMapCollapsedMaxScoreLoj$pairId),8]
+
+# Figure S3D
+pdf("sigNonSigEpiMapLinkBox.pdf")
+ggplot(aafInt800regions, aes(x=sig, y=as.numeric(maxEpiMapLinkScore))) + geom_boxplot(outlier.shape = NA) + 
+stat_compare_means(label.y = 1,method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2))) +
+coord_cartesian(ylim=c(0,1.25))+
+theme_classic()
+dev.off()
+
+```
+
+
+##abc links
+```{bash}
+perl -lane 'print "$F[0]\t$F[1]\t$F[2]\t$F[6]\;$F[23]\t$F[20]";' abc/AllPredictions.AvgHiC.ABC0.015.minus150.ForABCPaperV3.txt | grep -v start > abc/AllPredictions.AvgHiC.ABC0.015.minus150.ForABCPaperV3.bed
+liftOver abc/AllPredictions.AvgHiC.ABC0.015.minus150.ForABCPaperV3.bed hg19ToHg38.over.chain.gz abc/AllPredictions.AvgHiC.ABC0.015.minus150.ForABCPaperV3.hg38.bed unmapped
+```
+
+```{r}
+abcLinks = read.csv("./abc/AllPredictions.AvgHiC.ABC0.015.minus150.ForABCPaperV3.hg38.bed", header = F, sep = "\t")
+abcLinks = abcLinks %>% separate(4, c("gene", "tissue"), sep = ";")
+abcLinks[,c("tssChr", "tssStart", "tssEnd")] = geneStartsWithEns[match(abcLinks$gene, geneStartsWithEns$name), 1:3]
+abcLinksMaxScore = abcLinks %>% group_by_at(vars(c(1,2,3,7,8,9,4))) %>% summarise(maxAbcScore=paste0(max(V5)))
+abcLinksMaxScore = na.omit(abcLinksMaxScore)
+abcLinksMaxScore$V2 = abcLinksMaxScore$V2 + floor((abcLinksMaxScore$V3-abcLinksMaxScore$V2)/2)
+abcLinksMaxScore$V3 = abcLinksMaxScore$V2+1
+
+write.table(abcLinksMaxScore, file = "./abcLinksMaxScore.bedpe", quote = F, col.names = F, row.names = F, sep = "\t")
+
+```
+
+```{bash}
+bedtools pairtopair -slop 2500 -a gRhapRegionGrhapGeneWithId.txt -b abcLinksMaxScore.bedpe > gRhapRegionGrhapGeneWithId_AbcLinksMaxScore.5kb.Intersect.txt
+
+```
+
+```{r}
+aafInt800regionsAbcLinksMaxScoreIntersect = read.csv("./gRhapRegionGrhapGeneWithId_AbcLinksMaxScore.5kb.Intersect.txt", header = F, sep = "\t")
+aafInt800regionsAbcLinksMaxScoreIntersect = aafInt800regionsAbcLinksMaxScoreIntersect[,-c(16,17)]
+aafInt800regionsAbcLinksMaxScoreIntersectMaxScore = aafInt800regionsAbcLinksMaxScoreIntersect %>% group_by_at(vars(c(1,2,3,4,5,6,7))) %>% summarise(maxAbcScore=paste0(max(V15)))
+colnames(aafInt800regionsAbcLinksMaxScoreIntersectMaxScore) = c("chr", "start", "end", "geneTssChr", "geneTssStart", "geneTssEnd", "pairId", "maxAbcScore")
+
+aafInt800regionsAbcLinksMaxScoreIntersectMaxScoreLoj = subset(aafInt800regions, aafInt800regions$pairId %notin% aafInt800regionsAbcLinksMaxScoreIntersectMaxScore$pairId)[,c(11:16,10)]
+aafInt800regionsAbcLinksMaxScoreIntersectMaxScoreLoj$maxAbcScore = "NA"
+colnames(aafInt800regionsAbcLinksMaxScoreIntersectMaxScoreLoj) = c("chr", "start", "end", "geneTssChr", "geneTssStart", "geneTssEnd", "pairId", "maxAbcScore")
+aafInt800regionsAbcLinksMaxScoreIntersectMaxScoreLoj = rbind(aafInt800regionsAbcLinksMaxScoreIntersectMaxScoreLoj, aafInt800regionsAbcLinksMaxScoreIntersectMaxScore)
+
+aafInt800regions$maxAbcScore = aafInt800regionsAbcLinksMaxScoreIntersectMaxScoreLoj[match(aafInt800regions$pairId, aafInt800regionsAbcLinksMaxScoreIntersectMaxScoreLoj$pairId),8]
+
+# Figure S3E
+
+pdf("sigNonSigAbcBox.pdf")
+ggplot(aafInt800regions, aes(x=sig, y=as.numeric(maxAbcScore))) + geom_boxplot(outlier.shape = NA) + 
+stat_compare_means(label.y = 0.6,method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2))) +
+coord_cartesian(ylim=c(0,0.75))+
+theme_classic()
+dev.off()
+
+```
+
+
+##martins scripts for retrieving chip signals
+```{r}
+library(GenomicRanges)
+library(GenomicAlignments)
+library(rtracklayer)
+library(R.utils)
+library(data.table)
+
+message('Started: ', date())
+
+## Import and normalize ChIP signals
+rhap_gene_tss <- fread("./gRhapGeneTssSlop500.bed")
+colnames(rhap_gene_tss) <- c('seqnames', 'start', 'end', 'gene_name')
+rhap_gene_tss <- makeGRangesFromDataFrame(rhap_gene_tss, keep.extra.columns=T)
+
+
+rhap_regions <- fread("gRhapRegionsSlop500.bed")
+colnames(rhap_regions) <- c('seqnames', 'start', 'end', 'region_name')
+rhap_regions <- makeGRangesFromDataFrame(rhap_regions, keep.extra.columns=T)
+
+
+chips <- c(
+  'SHSY5Y_H3K27ac'='SH-SY5Y_A_H3K27ac.bed.gz',
+  'SHSY5Y_H3K4me1'='SH-SY5Y_A_H3K4me1.bed.gz',
+  'SHSY5Y_H3K4me3'='SH-SY5Y_A_H3K4me3.bed.gz',
+  'SHSY5Y_H3K27me3'='SH-SY5Y_A_H3K27me3.bed.gz',
+  'SHSY5Y_GATA2'='SH-SY5Y_A_GATA2.bed.gz',
+  'SHSY5Y_GATA3'='SH-SY5Y_A_GATA3.bed.gz', #CRC
+  'SKNSH_CTCF'='SK-N-SH_A_CTCF.bed.gz',
+  'SKNSH_H3K27me3'='SK-N-SH_A_H3K27me3.bed.gz',
+  'BE2C_PHOX2B'='BE2C_A_PHOX2B.bed.gz', #CRC
+  'BE2C_HAND2'='BE2C_A_HAND2.bed.gz', #CRC
+  'BE2C_MYCN'='BE2C_A_MYCN.bed.gz', #CRC
+  'BE2C_ISL1'='BE2C_A_ISL1.bed.gz', #CRC
+  'BE2C_TBX2'='BE2C_A_TBX2.bed.gz', #CRC
+  'BE2C_GATA3'='BE2C_A_GATA3.bed.gz', #CRC
+  'Kelly_GATA3'='Kelly_A_GATA3.bed.gz', #CRC
+  'Kelly_ISL1'='Kelly_A_ISL1.bed.gz', #CRC
+  'Kelly_HAND2'='Kelly_A_HAND2.bed.gz', #CRC
+  'Kelly_MYCN'='Kelly_A_MYCN.bed.gz', #CRC
+  'Kelly_PHOX2B'='Kelly_A_PHOX2B.bed.gz', #CRC
+  'Kelly_TBX2'='Kelly_A_TBX2.bed.gz', #CRC
+  'Kelly_LMO1'='Kelly_A_LMO1.bed.gz',
+  'Kelly_ASCL1'='Kelly_A_ASCL1.bed.gz', #CRC
+  'CLB-GA_PHOX2B'='CLB-GA_A_PHOX2B.bed.gz', #CRC
+  'CLB-GA_GATA3'='CLB-GA_A_GATA3.bed.gz', #CRC
+  'CLB-GA_HAND2'='CLB-GA_A_HAND2.bed.gz' #CRC
+  )
+stopifnot(all(file.exists(paste0('/path/to/ChIP-seq/work/bed_extend/', chips))))
+
+feature_min_sizes <-c(
+  'SHSY5Y_H3K27ac' = 1000,
+  'SHSY5Y_H3K4me1'= 1000,
+  'SHSY5Y_H3K4me3' = 1000,
+  'SHSY5Y_H3K27me3' = 1000,
+  'SKNSH_H3K27me3' = 1000
+  )
+for (chip_name in names(chips)){
+  chip <- chips[[chip_name]]
+  message('Import ChIP ', chip_name)
+  chip_file <- paste0('/path/to/ChIP-seq/work/bed_extend/', chip)
+  message('File ', chip_file)
+  chip_signal <- import(chip_file)
+  
+
+  rhap_gene_tss_resize <- rhap_gene_tss
+  rhap_regions_resize <- rhap_regions
+
+  
+  feature_min_size <- as.numeric(feature_min_sizes[chip_name])
+  if(!is.na(feature_min_size)){
+    message('Resizing features to min. ', feature_min_size)
+    rhap_gene_tss_resize <- resize(rhap_gene_tss, pmax(width(rhap_gene_tss), feature_min_size), fix="center")
+    rhap_regions_resize <- resize(rhap_regions, pmax(width(rhap_regions), feature_min_size), fix="center")
+  }
+  
+  # Summarize over rhapsody TSS
+  so_res <- summarizeOverlaps(features=rhap_gene_tss_resize, reads=chip_signal, mode="Union", inter.feature=FALSE)
+  mcols(rhap_gene_tss)[[paste0(chip_name, '_norm')]] <-  assays(so_res)$counts[,'reads'] / (width(rhap_gene_tss_resize)/1000) # Reads per kilobase
+  # 
+  # Summarize over rhapsody regions
+  so_res <- summarizeOverlaps(features=rhap_regions_resize, reads=chip_signal, mode="Union", inter.feature=FALSE)
+  mcols(rhap_regions)[[paste0(chip_name, '_norm')]] <-  assays(so_res)$counts[,'reads'] / (width(rhap_regions_resize)/1000) # Reads per kilobase
+  
+}
+
+## Import and normalize ATAC signal
+
+bam_atac_file <- '/path/to/atac/flexbared_SH-SY5Y_S5_R1_001.fastq.gz.sam.unique.bam.filtered.sorted.bam.nodup.bam.namesorted.bam.bedpe.fixed.bedpe.split.bed_true5end.bed_steric38.bed.bam.sorted.bam'
+which <- GRanges('chr4', IRanges(36406464, 47090621)) # 10 Mb PHOX2B
+param <- ScanBamParam(which=which)
+atac_gr_hg19 <- readGAlignments(bam_atac_file, param=param)
+chain_hg19_to_hg38 <- import.chain("/path/to/hg19ToHg38.over.chain")
+liftOver_unique <- function(gr, chain){
+  before_liftover_names=sort(names(gr))
+  gr <- liftOver(gr, chain)
+  gr <- unlist(GRangesList(gr))
+  stopifnot(sort(names(gr))==before_liftover_names)
+  return(gr)
+}
+atac_gr <- liftOver_unique(atac_gr_hg19, chain_hg19_to_hg38)
+
+# Summarize over rhapsody TSS
+so_res <- summarizeOverlaps(features=rhap_gene_tss, reads=atac_gr, mode="Union", inter.feature=FALSE)
+rhap_gene_tss$SHSY5Y_ATAC_norm <-  assays(so_res)$counts[,'reads'] / (width(rhap_gene_tss)/1000)  # Reads per kilobase
+fwrite(data.table(data.frame(rhap_gene_tss)), file='./rhap_gene_tss_ChIPs_ATAC_hg38.tsv.gz', sep="\t", quote = F, compress='gzip')
+
+# Summarize over rhapsody regions
+so_res <- summarizeOverlaps(features=rhap_regions, reads=atac_gr, mode="Union", inter.feature=FALSE)
+rhap_regions$SHSY5Y_ATAC_norm <-  assays(so_res)$counts[,'reads'] / (width(rhap_regions)/1000)  # Reads per kilobase
+fwrite(data.table(data.frame(rhap_regions)), file='./rhap_regions_ChIPs_ATAC_hg38.tsv.gz', sep="\t", quote = F, compress='gzip')
+
+regionTfMat = left_join(aafInt800regions, data.frame(rhap_regions)[,c(6:32)], by = c("ident" = "region_name"))
+regionTfMat = left_join(regionTfMat, data.frame(rhap_gene_tss)[,c(6:32)], by = c("gene" = "gene_name"), suffix = c(".region", ".gene"))
+
+aafInt800regions$regionH3K27ac = regionTfMat$SHSY5Y_H3K27ac_norm.region
+aafInt800regions$geneH3K27ac = regionTfMat$SHSY5Y_H3K27ac_norm.gene
+aafInt800regions$regionH3K4me1 = regionTfMat$SHSY5Y_H3K4me1_norm.region
+aafInt800regions$geneH3K4me1 = regionTfMat$SHSY5Y_H3K4me1_norm.gene
+aafInt800regions$regionAtac = regionTfMat$SHSY5Y_ATAC_norm.region
+aafInt800regions$geneAtac = regionTfMat$SHSY5Y_ATAC_norm.gene
+aafInt800regions$regionH3K4me3 = regionTfMat$SHSY5Y_H3K4me3_norm.region
+aafInt800regions$geneH3K4me3 = regionTfMat$SHSY5Y_H3K4me3_norm.gene
+
+```
+
+
+##choose min fdr for region signal box plots
+```{r}
+aafInt800regionsMinFdr = aafInt800regions %>% group_by(ident) %>% slice(which.min(p_val_adj))
+
+## Figure S3I
+
+library(ggpubr)
+
+
+pdf(file = "sigNonSigAtacBoxiWithStat.pdf")
+ggplot(aafInt800regionsMinFdr, aes(x=sig, y=regionAtac)) + geom_boxplot(outlier.shape = NA) + stat_compare_means(label.y = 500,method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2))) + theme_classic() + coord_cartesian(ylim = c(0,600))
+dev.off()
+
+pdf(file = "sigNonSig27acBoxWithStat.pdf")
+ggplot(aafInt800regionsMinFdr, aes(x=sig, y=regionH3K27ac)) + geom_boxplot(outlier.shape = NA) + stat_compare_means(label.y = 100,method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2))) + theme_classic() + coord_cartesian(ylim = c(0,300))
+dev.off()
+
+pdf(file = "sigNonSigMe1BoxWithStat.pdf")
+ggplot(aafInt800regionsMinFdr, aes(x=sig, y=regionH3K4me1)) + geom_boxplot(outlier.shape = NA) + stat_compare_means(label.y = 150,method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2))) + theme_classic() + coord_cartesian(ylim = c(0,175))
+dev.off()
+
+pdf(file = "sigNonSigMe3BoxWithStat.pdf")
+ggplot(aafInt800regionsMinFdr, aes(x=sig, y=regionH3K4me3)) + geom_boxplot(outlier.shape = NA) + stat_compare_means(label.y.npc = "top",method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2))) + theme_classic()
+dev.off()
+
+```
+
+##epimap tissue
+```{r}
+aafInt800regions[aafInt800regions$class == "none",]$tissue = "none"
+aafInt800regionsMinFdr = aafInt800regions %>% group_by(ident) %>% slice(which.min(p_val_adj))
+
+## Figure S4A
+
+pdf("rhapRegionMinFdrEpiMapBar.pdf")
+ggplot(subset(aafInt800regionsMinFdr, aafInt800regionsMinFdr$sig == "sig"), aes(x=tissue, fill=class)) + geom_bar(position="stack") + theme(axis.text.x = element_text(angle = 45, hjust=c(1,1)))
+dev.off()
+```
+
+##nbChips  note: peak files not provided
+```{bash}
+cd ../tfChips
+cp /path/to/ChIPs/peaks/*Peak ./
+rm *H3*
+cat * | cut -f7 > allScores.txt
+```
+
+```{r}
+allTFpeakScores = read.csv("tfChips/allScores.txt", header = F, sep = "\t")
+library(mclust)
+scoreClust = Mclust(log10(allTFpeakScores$V1), G = 3)
+allTFpeakScores$class = scoreClust$classification
+
+```
+
+```{bash}
+for f in *Peak;do perl -lane 'print $_ if $F[6] > 515' $f > filtered_$f;done
+cp /path/to/ChIPs/peaks/*H3* ./
+rm *27me3*
+cat filtered_* *H3* | bedtools sort -i stdin | bedtools merge -i stdin > filtered_merged_peaks.bed
+cd ../
+
+```
+
+
+#evidence
+```{bash}
+cat /path/to/atac/peaks/filtered.peaks.narrowPeak | bedtools sort -i stdin | bedtools merge -i stdin > mergedNbAtac_hg19.bed
+liftOver mergedNbAtac_hg19.bed hg19ToHg38.over.chain.gz mergedNbAtac_hg38.bed unmappedNbAtac
+
+cat mergedNbAtac_hg38.bed ../tfChips/filtered_merged_peaks.bed | bedtools sort -i stdin | bedtools merge -i stdin > mergedNbAllPeaks.bed
+
+bedtools closest -d -t "first" -a <(bedtools sort -i noNA_bulkRegions.bed) -b <(bedtools sort -i mergedNbAllPeaks.bed) > noNA_bulkRegions.closest.mergedNbAllPeaks.txt
+```
+
+```{r}
+bulkRegionsNbAll = read.csv("./noNA_bulkRegions.closest.mergedNbAllPeaks.txt", sep = "\t", header = F)
+aafInt800regions$nbDist = bulkRegionsNbAll[match(aafInt800regions$ident, bulkRegionsNbAll$V4),9]
+
+aafInt800regions$nbClose = "no"
+aafInt800regions[aafInt800regions$nbDist <= 250,]$nbClose = "yes"
+
+aafInt800regions$epiDist = regionsMeulemanDhsEpiMapCreClosest[match(aafInt800regions$ident, regionsMeulemanDhsEpiMapCreClosest$id),"dist"]
+
+aafInt800regions$evidence = "noEF"
+aafInt800regions[aafInt800regions$nbClose == "yes",]$evidence = "nb"
+aafInt800regions[aafInt800regions$class != "none" & aafInt800regions$nbClose == "no",]$evidence = "other"
+aafInt800regions$evidence = factor(aafInt800regions$evidence, levels = c("nb", "other", "noEF"))
+aafInt800regionsMinFdr = aafInt800regions %>% group_by(ident) %>% slice(which.min(p_val_adj))
+
+## Figure 4B
+pdf(file="evidenceByChrStateBar.pdf")
+ggplot(subset(aafInt800regionsMinFdr, aafInt800regionsMinFdr$sig == "sig"), aes(x=evidence, fill=class)) + geom_bar() + theme_classic()
+dev.off()
+
+## Figure S4E
+pdf(file="evidenceByHicInteractsBar.pdf")
+ggplot(subset(aafInt800regionsMinFdr, aafInt800regionsMinFdr$sig == "sig"), aes(x=evidence, fill=hicInteracts)) + geom_bar() + theme_classic()
+dev.off()
+
+## Figure 4F
+pdf(file="evidenceByCapcInteractsBar.pdf")
+ggplot(subset(aafInt800regionsMinFdr, aafInt800regionsMinFdr$sig == "sig"), aes(x=evidence, fill=capcInteracts)) + geom_bar() + theme_classic()
+dev.off()
+
+
+aafInt800regions$gene = factor(aafInt800regions$gene)
+aafInt800regions$gene = reorder(aafInt800regions$gene, as.numeric(aafInt800regions$geneTssStart))
+myPal = colorRampPalette(rev(brewer.pal(12,"Paired")))
+
+## Figure 4A
+pdf("rhapGenePointEvidenceNoEFV2.pdf")
+ggplot(aafInt800regions, aes(y=gene, x=dist, shape=evidence, alpha=sig, color=class, fill=capcInteracts, size=2^avg_logFC)) + geom_point(stroke=1.5) + theme_classic() + guides(alpha="none", shape="none") + xlab("log10(linear distance)") + scale_alpha_manual(values = c(0,1)) + scale_y_discrete(drop=FALSE,expand = expansion(add = 1.5)) + scale_shape_manual(values=c(NA,NA,21)) + scale_fill_manual(values = c("white","black")) + scale_size_binned(breaks = c(1,2))
+dev.off()
+
+pdf("rhapGenePointEvidenceOtherV2.pdf")
+ggplot(aafInt800regions, aes(y=gene, x=dist, shape=evidence, alpha=sig, color=class, fill=capcInteracts, size=2^avg_logFC)) + geom_point(stroke=1.5) + theme_classic() + guides(alpha="none", shape="none") + xlab("log10(linear distance)") + scale_alpha_manual(values = c(0,1)) + scale_y_discrete(drop=FALSE,expand = expansion(add = 1.5)) + scale_shape_manual(values=c(NA,21,NA)) + scale_fill_manual(values = c("white","black")) + scale_size_binned(breaks = c(1,2))
+dev.off()
+
+pdf("rhapGenePointEvidenceNbV2.pdf")
+ggplot(aafInt800regions, aes(y=gene, x=dist, shape=evidence, alpha=sig, color=class, fill=capcInteracts, size=2^avg_logFC)) + geom_point(stroke=1.5) + theme_classic() + guides(alpha="none", shape="none") + xlab("log10(linear distance)") + scale_alpha_manual(values = c(0,1)) + scale_y_discrete(drop=FALSE,expand = expansion(add = 1.5)) + scale_shape_manual(values=c(21,NA,NA)) + scale_fill_manual(values = c("white","black")) + scale_size_binned(breaks = c(1,2))
+dev.off()
+
+## Figure S4B
+pdf(file="adjPval_lfc_Nb.pdf",width=8.5, height=7)
+ggplot(subset(aafInt800regions, aafInt800regions$sig == "sig"), aes(y=-log10(p_val_adj), x=avg_logFC, size=capcInteracts, color=class, shape=evidence)) + geom_point(stroke=1.5) + theme_classic() + scale_shape_manual(values = c(1,NA,NA)) + guides(shape="none") + ylim(0,30)
+dev.off()
+
+pdf(file="adjPval_lfc_Nb.yZoom.pdf",width=8.5, height=2)
+ggplot(subset(aafInt800regions, aafInt800regions$sig == "sig"), aes(y=-log10(p_val_adj), x=avg_logFC, size=capcInteracts, color=class, shape=evidence)) + geom_point(stroke=1.5) + theme_classic() + scale_shape_manual(values = c(1,NA,NA)) + guides(shape="none") + ylim(75,175)
+dev.off()
+
+pdf(file="adjPval_lfc_other.pdf",width=8.5, height=7)
+ggplot(subset(aafInt800regions, aafInt800regions$sig == "sig"), aes(y=-log10(p_val_adj), x=avg_logFC, size=capcInteracts, color=class, shape=evidence)) + geom_point(stroke=1.5) + theme_classic() + scale_shape_manual(values = c(NA,1,NA)) + guides(shape="none") + ylim(0,30)
+dev.off()
+
+pdf(file="adjPval_lfc_other.yZoom.pdf",width=8.5, height=2)
+ggplot(subset(aafInt800regions, aafInt800regions$sig == "sig"), aes(y=-log10(p_val_adj), x=avg_logFC, size=capcInteracts, color=class, shape=evidence)) + geom_point(stroke=1.5) + theme_classic() + scale_shape_manual(values = c(NA,1,NA)) + guides(shape="none") + ylim(75,175)
+dev.off()
+
+pdf(file="adjPval_lfc_noEF.pdf",width=8.5, height=7)
+ggplot(subset(aafInt800regions, aafInt800regions$sig == "sig"), aes(y=-log10(p_val_adj), x=avg_logFC, size=capcInteracts, color=class, shape=evidence)) + geom_point(stroke=1.5) + theme_classic() + scale_shape_manual(values = c(NA,NA,1)) + guides(shape="none") + ylim(0,30)
+dev.off()
+
+pdf(file="adjPval_lfc_noEF.yZoom.pdf",width=8.5, height=2)
+ggplot(subset(aafInt800regions, aafInt800regions$sig == "sig"), aes(y=-log10(p_val_adj), x=avg_logFC, size=capcInteracts, color=class, shape=evidence)) + geom_point(stroke=1.5) + theme_classic() + scale_shape_manual(values = c(NA,NA,1)) + guides(shape="none") + ylim(75,175)
+dev.off()
+
+```
+##gene venn diagram
+```{r}
+library(VennDiagram)
+
+geneEvidenceList = list("nb" = unique(aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$evidence == "nb",]$gene), "other" = unique(aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$evidence == "other",]$gene), "noEF" = unique(aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$evidence == "noEF",]$gene))
+geneEvidenceListVennObj = venn.diagram(geneEvidenceList,filename = NULL)
+
+## Figure S4C
+pdf(file = "evidenceGeneVenn.pdf")
+grid.draw(geneEvidenceListVennObj)
+dev.off()
+```
+
+##promoter state class
+```{r}
+
+aafInt800regions = aafInt800regions %>% mutate(geneAtacMeds = ntile(geneAtac, 2))
+aafInt800regions$geneAtacMeds = factor(aafInt800regions$geneAtacMeds, levels=c(1:2))
+
+aafInt800regions = aafInt800regions %>% mutate(geneH3K27acMeds = ntile(geneH3K27ac, 2))
+aafInt800regions$geneH3K27acMeds = factor(aafInt800regions$geneH3K27acMeds, levels=c(1:2))
+
+aafInt800regions = aafInt800regions %>% mutate(geneH3K4me3Meds = ntile(geneH3K4me3, 2))
+aafInt800regions$geneH3K4me3Meds = factor(aafInt800regions$geneH3K4me3Meds, levels=c(1:2))
+
+aafInt800regions = aafInt800regions %>% mutate(geneChrRnaMeds = ntile(geneChrRna, 2))
+aafInt800regions$geneChrRnaMeds = factor(aafInt800regions$geneChrRnaMeds, levels=c(1:2))
+
+aafInt800regions = aafInt800regions %>% mutate(maxCapcScoreMeds = ntile(maxCapcScore, 2))
+aafInt800regions$maxCapcScoreMeds = factor(aafInt800regions$maxCapcScoreMeds, levels=c(1:2))
+
+
+library(ggpubr)
+
+rhapRegionLfcLongSigAll = aafInt800regions[, c(2,10,21,45,47,49)]
+colnames(rhapRegionLfcLongSigAll) = c("log2 Fold Change", "pairId", "sig","prom ATAC", "prom H3K4me3", "nuCapC Score")
+meltedRhapRegionLfcLongSigAll = melt(rhapRegionLfcLongSigAll, id.vars = c("sig","pairId", "log2 Fold Change"))
+
+# Figure 3F
+pdf("promStateRhapLfcSinglePlotSigAll.pdf", width=12, height=6)
+ggplot(meltedRhapRegionLfcLongSigAll[!is.na(meltedRhapRegionLfcLongSigAll$value),],aes(x=sig,y=`log2 Fold Change`, color=value))+
+geom_boxplot(outlier.shape = NA)+
+stat_compare_means(label.y = c(0.52,0.52,0.52,0.52,0.52,0.52), method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))))+
+facet_grid(cols = vars(variable))+
+theme_classic()+
+scale_x_discrete(labels = c('nonSig','sig'))+
+coord_cartesian(ylim = c(-.25,0.55))
+dev.off()
+
+rhapRegionLfcLongSigAll2 = aafInt800regions[, c(2,10,21,46,48)]
+colnames(rhapRegionLfcLongSigAll2) = c("log2 Fold Change", "pairId", "sig","prom H3K27ac", "gene Chromatin RNA")
+meltedRhapRegionLfcLongSigAll2 = melt(rhapRegionLfcLongSigAll2, id.vars = c("sig","pairId", "log2 Fold Change"))
+
+# Figure S3G
+pdf("promStateRhapLfcSinglePlotSigAll2.pdf", width=12, height=6)
+ggplot(meltedRhapRegionLfcLongSigAll2[!is.na(meltedRhapRegionLfcLongSigAll2$value),],aes(x=sig,y=`log2 Fold Change`, color=value))+
+geom_boxplot(outlier.shape = NA)+
+stat_compare_means(label.y = c(0.52,0.52,0.52,0.52), method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))))+
+facet_grid(cols = vars(variable))+
+theme_classic()+
+scale_x_discrete(labels = c('nonSig','sig')) +
+coord_cartesian(ylim = c(-.4,0.7))
+dev.off()
+
+
+
+
+
+```
+
+
+## Figure 4 boxplots with tests
+```{r}
+rhapRegionMinFdrPadjLong = aafInt800regionsMinFdr[aafInt800regionsMinFdr$sig == "sig", c(5,7,41)]
+colnames(rhapRegionMinFdrPadjLong) = c("padj", "ident", "evidence")
+meltedRhapRegionMinFdrPadjLong = melt(rhapRegionMinFdrPadjLong, id.vars = c("evidence","ident"))
+
+## Figure 4C
+pdf("regionMinFdrPadjByEvidenceBoxWithTest.pdf")
+ggplot(meltedRhapRegionMinFdrPadjLong,aes(x=evidence,y=-log10(value)))+
+geom_boxplot(outlier.shape = NA)+
+geom_jitter()+
+stat_compare_means(label.y = c(60,45,30),method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2), c(1,3),c(2,3)))+
+theme_classic()#+
+#coord_cartesian(ylim = c(0,40))
+dev.off()
+
+rhapRegionMinFdrLfcLong = aafInt800regionsMinFdr[aafInt800regionsMinFdr$sig == "sig", c(2,7,41)]
+colnames(rhapRegionMinFdrLfcLong) = c("lfc", "ident", "evidence")
+meltedRhapRegionMinFdrLfcLong = melt(rhapRegionMinFdrLfcLong, id.vars = c("evidence","ident"))
+
+## Figure 4D
+pdf("regionMinFdrLfcByEvidenceBoxWithTest.pdf")
+ggplot(meltedRhapRegionMinFdrLfcLong,aes(x=evidence,y=value))+
+geom_boxplot(outlier.shape = NA)+
+geom_jitter()+
+stat_compare_means(label.y = c(0.8,0.6,0.4),method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2), c(1,3),c(2,3)))+
+theme_classic()+
+coord_cartesian(ylim = c(-0.6,1))
+dev.off()
+
+rhapRegionMinFdrDistLong = aafInt800regionsMinFdr[aafInt800regionsMinFdr$sig == "sig", c(22,7,41)]
+colnames(rhapRegionMinFdrDistLong) = c("dist", "ident", "evidence")
+meltedRhapRegionMinFdrDistLong = melt(rhapRegionMinFdrDistLong, id.vars = c("evidence","ident"))
+
+## Figure 4E
+pdf("regionMinFdrDistByEvidenceBoxWithTest.pdf")
+ggplot(meltedRhapRegionMinFdrDistLong,aes(x=evidence,y=value))+
+geom_boxplot(outlier.shape = NA)+
+geom_jitter()+
+stat_compare_means(label.y = c(8,7.5,7),method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2), c(1,3),c(2,3)))+
+theme_classic()+
+coord_cartesian(ylim = c(2,8.5))
+dev.off()
+
+rhapRegionMinFdrCapcLong = aafInt800regionsMinFdr[aafInt800regionsMinFdr$sig == "sig", c(25,7,41)]
+colnames(rhapRegionMinFdrCapcLong) = c("capc", "ident", "evidence")
+meltedRhapRegionMinFdrCapcLong = melt(rhapRegionMinFdrCapcLong, id.vars = c("evidence","ident"))
+
+## Figure S4D
+pdf("regionMinFdrCapcByEvidenceBoxWithTest.pdf")
+ggplot(meltedRhapRegionMinFdrCapcLong,aes(x=evidence,y=as.numeric(value)))+
+geom_boxplot(outlier.shape = NA)+
+geom_jitter()+
+stat_compare_means(label.y = c(20,15,10),method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2), c(1,3),c(2,3)))+
+theme_classic()#+
+#coord_cartesian(ylim = c(0,17))
+dev.off()
+
+rhapRegionMinFdrHicLong = aafInt800regionsMinFdr[aafInt800regionsMinFdr$sig == "sig", c(23,7,41)]
+colnames(rhapRegionMinFdrHicLong) = c("hic", "ident", "evidence")
+meltedRhapRegionMinFdrHicLong = melt(rhapRegionMinFdrHicLong, id.vars = c("evidence","ident"))
+
+## Figure S4F
+pdf("regionMinFdrHicByEvidenceBoxWithTest.pdf")
+ggplot(meltedRhapRegionMinFdrHicLong,aes(x=evidence,y=as.numeric(value)))+
+geom_boxplot(outlier.shape = NA)+
+geom_jitter()+
+stat_compare_means(label.y = c(110,95,80),method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2), c(1,3),c(2,3)))+
+theme_classic()#+
+#coord_cartesian(ylim = c(-50,125))
+dev.off()
+
+```
+
+
+##figure5
+```{r}
+library(Seurat)
+matCw = readRDS("/path/to/Rhapsody_BC.rds")
+
+#shisa3 regions
+write.table(aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$gene == "SHISA3",c(11:13)], file = "shisa3regions.bed", quote = F, sep = "\t", col.names = F, row.names = F)
+```
+```{bash}
+pyGenomeTracks --tracks tracks.ini --region chr4:42,250,000-42,550,000 --outFileName shisa3.pdf
+```
+```{r}
+shisa3regions = aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$gene == "SHISA3",7]
+
+r729pos = names(matCw$Region_729[matCw$Region_729 == "perturbed"])
+r729neg = names(matCw$Region_729[matCw$Region_729 != "perturbed"])
+r729list = list("targeted" = matCw@assays$SCT@data["SHISA3",r729pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r729neg])
+r729listMelt = melt(r729list)
+pdf("shisa3r729.pdf")
+ggplot(r729listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_729") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r730pos = names(matCw$Region_730[matCw$Region_730 == "perturbed"])
+r730neg = names(matCw$Region_730[matCw$Region_730 != "perturbed"])
+r730list = list("targeted" = matCw@assays$SCT@data["SHISA3",r730pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r730neg])
+r730listMelt = melt(r730list)
+pdf("shisa3r730.pdf")
+ggplot(r730listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_730") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r738pos = names(matCw$Region_738[matCw$Region_738 == "perturbed"])
+r738neg = names(matCw$Region_738[matCw$Region_738 != "perturbed"])
+r738list = list("targeted" = matCw@assays$SCT@data["SHISA3",r738pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r738neg])
+r738listMelt = melt(r738list)
+pdf("shisa3r738.pdf")
+ggplot(r738listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_738") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r740pos = names(matCw$Region_740[matCw$Region_740 == "perturbed"])
+r740neg = names(matCw$Region_740[matCw$Region_740 != "perturbed"])
+r740list = list("targeted" = matCw@assays$SCT@data["SHISA3",r740pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r740neg])
+r740listMelt = melt(r740list)
+pdf("shisa3r740.pdf")
+ggplot(r740listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_740") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r741pos = names(matCw$Region_741[matCw$Region_741 == "perturbed"])
+r741neg = names(matCw$Region_741[matCw$Region_741 != "perturbed"])
+r741list = list("targeted" = matCw@assays$SCT@data["SHISA3",r741pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r741neg])
+r741listMelt = melt(r741list)
+pdf("shisa3r741.pdf")
+ggplot(r741listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_741") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r780pos = names(matCw$Region_780[matCw$Region_780 == "perturbed"])
+r780neg = names(matCw$Region_780[matCw$Region_780 != "perturbed"])
+r780list = list("targeted" = matCw@assays$SCT@data["SHISA3",r780pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r780neg])
+r780listMelt = melt(r780list)
+pdf("shisa3r780.pdf")
+ggplot(r780listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_780") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r789pos = names(matCw$Region_789[matCw$Region_789 == "perturbed"])
+r789neg = names(matCw$Region_789[matCw$Region_789 != "perturbed"])
+r789list = list("targeted" = matCw@assays$SCT@data["SHISA3",r789pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r789neg])
+r789listMelt = melt(r789list)
+pdf("shisa3r789.pdf")
+ggplot(r789listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_789") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r790pos = names(matCw$Region_790[matCw$Region_790 == "perturbed"])
+r790neg = names(matCw$Region_790[matCw$Region_790 != "perturbed"])
+r790list = list("targeted" = matCw@assays$SCT@data["SHISA3",r790pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r790neg])
+r790listMelt = melt(r790list)
+pdf("shisa3r790.pdf")
+ggplot(r790listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_790") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r803pos = names(matCw$Region_803[matCw$Region_803 == "perturbed"])
+r803neg = names(matCw$Region_803[matCw$Region_803 != "perturbed"])
+r803list = list("targeted" = matCw@assays$SCT@data["SHISA3",r803pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r803neg])
+r803listMelt = melt(r803list)
+pdf("shisa3r803.pdf")
+ggplot(r803listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_803") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r806pos = names(matCw$Region_806[matCw$Region_806 == "perturbed"])
+r806neg = names(matCw$Region_806[matCw$Region_806 != "perturbed"])
+r806list = list("targeted" = matCw@assays$SCT@data["SHISA3",r806pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r806neg])
+r806listMelt = melt(r806list)
+pdf("shisa3r806.pdf")
+ggplot(r806listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_806") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r816pos = names(matCw$Region_816[matCw$Region_816 == "perturbed"])
+r816neg = names(matCw$Region_816[matCw$Region_816 != "perturbed"])
+r816list = list("targeted" = matCw@assays$SCT@data["SHISA3",r816pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r816neg])
+r816listMelt = melt(r816list)
+pdf("shisa3r816.pdf")
+ggplot(r816listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_816") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r828pos = names(matCw$Region_828[matCw$Region_828 == "perturbed"])
+r828neg = names(matCw$Region_828[matCw$Region_828 != "perturbed"])
+r828list = list("targeted" = matCw@assays$SCT@data["SHISA3",r828pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r828neg])
+r828listMelt = melt(r828list)
+pdf("shisa3r828.pdf")
+ggplot(r828listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_828") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r829pos = names(matCw$Region_829[matCw$Region_829 == "perturbed"])
+r829neg = names(matCw$Region_829[matCw$Region_829 != "perturbed"])
+r829list = list("targeted" = matCw@assays$SCT@data["SHISA3",r829pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r829neg])
+r829listMelt = melt(r829list)
+pdf("shisa3r829.pdf")
+ggplot(r829listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_829") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r831pos = names(matCw$Region_831[matCw$Region_831 == "perturbed"])
+r831neg = names(matCw$Region_831[matCw$Region_831 != "perturbed"])
+r831list = list("targeted" = matCw@assays$SCT@data["SHISA3",r831pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r831neg])
+r831listMelt = melt(r831list)
+pdf("shisa3r831.pdf")
+ggplot(r831listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_831") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+r840pos = names(matCw$Region_840[matCw$Region_840 == "perturbed"])
+r840neg = names(matCw$Region_840[matCw$Region_840 != "perturbed"])
+r840list = list("targeted" = matCw@assays$SCT@data["SHISA3",r840pos], "not targeted" = matCw@assays$SCT@data["SHISA3",r840neg])
+r840listMelt = melt(r840list)
+pdf("shisa3r840.pdf")
+ggplot(r840listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_840") + ylab("log corrected SHISA3 counts")
+dev.off()
+
+#APBB2 regions
+write.table(aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$gene == "APBB2",c(11:13)], file = "apbb2regions.bed", quote = F, sep = "\t", col.names = F, row.names = F)
+```
+```{bash}
+pyGenomeTracks --tracks tracksApbb2.ini --region chr4:40,800,027-41,225,714 --outFileName apbb2.pdf
+```
+```{r}
+apbb2regions = aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$gene == "APBB2",7]
+
+r174pos = names(matCw$Region_174[matCw$Region_174 == "perturbed"])
+r174neg = names(matCw$Region_174[matCw$Region_174 != "perturbed"])
+r174list = list("targeted" = matCw@assays$SCT@data["APBB2",r174pos], "not targeted" = matCw@assays$SCT@data["APBB2",r174neg])
+r174listMelt = melt(r174list)
+pdf("apbb2r174.pdf")
+ggplot(r174listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_174") + ylab("log corrected APBB2 counts")
+dev.off()
+
+r233pos = names(matCw$Region_233[matCw$Region_233 == "perturbed"])
+r233neg = names(matCw$Region_233[matCw$Region_233 != "perturbed"])
+r233list = list("targeted" = matCw@assays$SCT@data["APBB2",r233pos], "not targeted" = matCw@assays$SCT@data["APBB2",r233neg])
+r233listMelt = melt(r233list)
+pdf("apbb2r233.pdf")
+ggplot(r233listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_233") + ylab("log corrected APBB2 counts")
+dev.off()
+
+r52pos = names(matCw$Region_52[matCw$Region_52 == "perturbed"])
+r52neg = names(matCw$Region_52[matCw$Region_52 != "perturbed"])
+r52list = list("targeted" = matCw@assays$SCT@data["APBB2",r52pos], "not targeted" = matCw@assays$SCT@data["APBB2",r52neg])
+r52listMelt = melt(r52list)
+pdf("apbb2r52.pdf")
+ggplot(r52listMelt, aes(x = L1, y=value)) + geom_boxplot(outlier.shape = NA) + coord_cartesian(ylim = c(0,4)) + theme_classic() + xlab("Region_52") + ylab("log corrected APBB2 counts")
+dev.off()
+
+
+```
+##capture-c tracks
+```{bash}
+grep SHISA3 /fast/AG_Ohler/Scott/dusaCaptureC/HiCUP/chicago/rhapsodyCapture.bedpe | cut -f4,5,6,8 > rhapsodyCapture_shisa3.bedGraph
+bedGraphToBigWig rhapsodyCapture_shisa3.bedGraph /fast/AG_Ohler/Scott/hg38/hg38.all.chrom.sizes rhapsodyCapture_shisa3.bedGraph.bw
+
+grep APBB2 /fast/AG_Ohler/Scott/dusaCaptureC/HiCUP/chicago/rhapsodyCapture.bedpe | cut -f4,5,6,8 > rhapsodyCapture_apbb2.bedGraph
+bedGraphToBigWig rhapsodyCapture_apbb2.bedGraph /fast/AG_Ohler/Scott/hg38/hg38.all.chrom.sizes rhapsodyCapture_apbb2.bedGraph.bw
+```
+
+
+
+### main text figs from revision analysis ###
+
+## Figure 1G
+```{r}
+guideNumberPerCare = bulkRegionsBinsGuides %>% group_by(Region_name) %>% summarise(n = n())
+pdf(file="guideNumberPerCareHist.pdf")
+ggplot(guideNumberPerCare, aes(n)) + geom_histogram() + theme_classic()
+dev.off()
+
+bulkRegions$width = bulkRegions$Region_end - bulkRegions$Region_start
+
+bulkRegions$guideNum = guideNumberPerCare[match(bulkRegions$Region_name, guideNumberPerCare$Region_name), 2]
+bulkRegionsNoNA = subset(bulkRegions, bulkRegions$Region_pvalue != "NA")
+
+
+pdf(file="guideNumberPerCareVsWidthHexbin.pdf")
+ggplot(bulkRegionsNoNA, aes(x=guideNum, y=log10(width))) + geom_hex() + theme_classic()
+dev.off()
+
+
+##plot martins signals for bulk
+martinsRegionSignals = read.csv("../../../martin_rhapsody/analysis/integrate_crispr_chips_atac/output/regions_ChIPs_ATAC_hg38.tsv.gz", header=T, sep="\t")
+martinsRegionSignalsNoNa = martinsRegionSignals[!is.na(martinsRegionSignals$Region_fdr),]
+martinsRegionSignalsNoNa$sig = "nonSig"
+martinsRegionSignalsNoNa[martinsRegionSignalsNoNa$Region_fdr < 0.05,37] = "sig"
+
+martinsRegionSignalsNoNa$sig = factor(martinsRegionSignalsNoNa$sig, levels = c("sig", "nonSig"))
+
+## Figure S1E-H 
+pdf("bulkSigAtacFdrHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=-log10(Region_fdr),y=SHSY5Y_ATAC_norm)) + geom_hex() + theme_minimal()
+dev.off()
+pdf("bulkSigMe1FdrHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=-log10(Region_fdr),y=SHSY5Y_H3K4me1_norm)) + geom_hex() + theme_minimal()
+dev.off()
+pdf("bulkSigMe3FdrHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=-log10(Region_fdr),y=SHSY5Y_H3K4me3_norm)) + geom_hex() + theme_minimal()
+dev.off()
+pdf("bulkSig27acFdrHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=-log10(Region_fdr),y=SHSY5Y_H3K27ac_norm)) + geom_hex() + theme_minimal()
+dev.off()
+
+pdf("bulkSigAtacEstimateHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=Region_estimate,y=SHSY5Y_ATAC_norm)) + geom_hex() + theme_minimal()
+dev.off()
+pdf("bulkSigMe1EstimateHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=Region_estimate,y=SHSY5Y_H3K4me1_norm)) + geom_hex() + theme_minimal()
+dev.off()
+pdf("bulkSigMe3EstimateHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=Region_estimate,y=SHSY5Y_H3K4me3_norm)) + geom_hex() + theme_minimal()
+dev.off()
+pdf("bulkSig27acEstimateHexbin.pdf")
+ggplot(subset(martinsRegionSignalsNoNa, martinsRegionSignalsNoNa$sig == "sig"), aes(x=Region_estimate,y=SHSY5Y_H3K27ac_norm)) + geom_hex() + theme_minimal()
+dev.off()
+
+##plot evidence for bulk results
+regionsMeulemanDhsEpiMapCreClosest$nbDist = bulkRegionsNbAll[match(regionsMeulemanDhsEpiMapCreClosest$id, bulkRegionsNbAll$V4),9]
+regionsMeulemanDhsEpiMapCreClosest$nbClose = "no"
+regionsMeulemanDhsEpiMapCreClosest[regionsMeulemanDhsEpiMapCreClosest$nbDist <= 250,]$nbClose = "yes"
+regionsMeulemanDhsEpiMapCreClosest$evidence = "noEF"
+regionsMeulemanDhsEpiMapCreClosest[regionsMeulemanDhsEpiMapCreClosest$nbClose == "yes",]$evidence = "nb"
+regionsMeulemanDhsEpiMapCreClosest[regionsMeulemanDhsEpiMapCreClosest$class != "none" & regionsMeulemanDhsEpiMapCreClosest$nbClose == "no",]$evidence = "other"
+regionsMeulemanDhsEpiMapCreClosest$evidence = factor(regionsMeulemanDhsEpiMapCreClosest$evidence, levels = c("nb", "other", "noEF"))
+
+regionsMeulemanDhsEpiMapCreClosest$sig = "nonSig"
+regionsMeulemanDhsEpiMapCreClosest[regionsMeulemanDhsEpiMapCreClosest$fdr < 0.05,23] = "sig"
+
+## Figure S1I
+pdf(file="bulkEvidenceByChrStateBar.pdf")
+ggplot(subset(regionsMeulemanDhsEpiMapCreClosest, regionsMeulemanDhsEpiMapCreClosest$sig == "sig"), aes(x=evidence, fill=class)) + geom_bar() + theme_classic()
+dev.off()
+
+regionsMeulemanDhsEpiMapCreClosest$slope = bulkRegions[match(regionsMeulemanDhsEpiMapCreClosest$id,bulkRegions$Region_name),"Region_slope"]
+
+## Figure S1J
+
+pdf(file="bulkFdrByEvidenceBoxWithStats.pdf")
+ggplot(subset(regionsMeulemanDhsEpiMapCreClosest, regionsMeulemanDhsEpiMapCreClosest$sig == "sig"), aes(x=evidence, y=-log10(fdr))) + geom_boxplot() + stat_compare_means(label.y.npc = "top",method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2), c(1,3),c(2,3))) + theme_classic()
+dev.off()
+
+## Figure S1K
+pdf("bulkSlopeByEvidenceBoxWithStats.pdf")
+ggplot(subset(regionsMeulemanDhsEpiMapCreClosest, regionsMeulemanDhsEpiMapCreClosest$sig == "sig"), aes(x=evidence, y=slope)) + geom_boxplot() + stat_compare_means(label.y.npc = "top",method = "wilcox.test", aes(label = paste0("p = ", after_stat(p.format))),comparisons=list(c(1,2), c(1,3),c(2,3))) + theme_classic()
+dev.off()
+
+```
+
+

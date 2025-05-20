@@ -1,0 +1,468 @@
+
+---
+title: "revisionAnalysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+.libPaths(c("/home/slacadie/.guix-profile/site-library"))
+`%notin%` <- Negate(`%in%`)
+library(tidyr)
+library(dplyr)
+library(RColorBrewer)
+```
+
+
+```{bash}
+cp /fast/AG_Ohler/Lorena/CRISPR_phox2b/PAPER/*guide_results.txt ./
+perl -lane 'next if $_ =~ /tart/;print "$F[0]\t$F[1]\t$F[2]\t$F[7]\t$F[11]\t$F[8]";' KRAB_guide_results.txt > KRAB_guide_results.bed
+perl -lane 'next if $_ =~ /tart/;print "$F[10]\t$F[11]\t$F[12]\t$F[9]\t$F[4]";' aafInt800regionsMinFdr.txt > aafInt800regionsMinFdr.bed
+bedtools closest -d -t "first" -a <(bedtools sort -i KRAB_guide_results.bed) -b <(bedtools sort -i ../mergedNbAllPeaks.bed) > KRAB_guide_results_closest.mergedNbAllPeaks.txt
+bedtools closest -d -t "first" -a <(bedtools sort -i KRAB_guide_results.bed) -b <(bedtools sort -i ../mergedNbAtac_hg38.bed) > KRAB_guide_results_closest.mergedNbAtac.txt
+```
+
+```{r}
+vpr = read.csv("/fast/AG_Ohler/Lorena/CRISPR_phox2b/PAPER/VPR_guide_results.txt", header=T, sep="\t")
+krab = read.csv("/fast/AG_Ohler/Lorena/CRISPR_phox2b/PAPER/KRAB_guide_results.txt", header=T, sep="\t")
+library(ggplot2)
+pdf("vprKrabHexbinFdr.pdf")
+fdrData = data.frame("vpr" = vpr$fdr,"krab"=krab$fdr)
+ggplot(fdrData, aes(x=-log10(vpr), y=-log10(krab))) + geom_hex() + theme_minimal()
+dev.off()
+logfoldData = data.frame("vpr"=vpr$logfold, "krab"=krab$logfold)
+pdf("vprKrabHexbinLfc.pdf")
+ggplot(logfoldData, aes(x=vpr, y=krab)) + geom_hex() + theme_minimal()
+dev.off()
+
+krabRegionsGithub = read.csv("lorenaFromGithub/KRAB_regions_results_plot.csv", header=T, sep=",")
+vprRegionsGithub = read.csv("lorenaFromGithub/VPR_regions_results_plot.csv", header=T, sep=",")
+fdrRegionData = data.frame("vpr" = vprRegionsGithub$fdr,"krab"=krabRegionsGithub$fdr)
+estimateData = data.frame("vpr" = vprRegionsGithub$estimate,"krab"=krabRegionsGithub$estimate)
+
+pdf("vprKrabRegionHexbinFdr.pdf")
+ggplot(fdrRegionData, aes(x=-log10(vpr), y=-log10(krab))) + geom_hex() + theme_minimal()
+dev.off()
+
+pdf("vprKrabRegionHexbinEstimate.pdf")
+ggplot(estimateData, aes(x=vpr, y=krab)) + geom_hex() + theme_minimal()
+dev.off()
+
+load("../data.RData")
+write.table(aafInt800regionsMinFdr, file="aafInt800regionsMinFdr.txt", quote=F, sep="\t", col.names=T, row.names=F)
+bulkKrabNbIntersect = read.csv("./KRAB_guide_results_closest.mergedNbAllPeaks.txt", header=F, sep="\t")
+bulkKrabNbIntersect$nb = "no"
+bulkKrabNbIntersect[bulkKrabNbIntersect$V10 == 0,]$nb = "yes"
+bulkKrabNbAtacIntersect = read.csv("./KRAB_guide_results_closest.mergedNbAtac.txt", header=F, sep="\t")
+bulkKrabNbAtacIntersect$atac = "no"
+bulkKrabNbAtacIntersect[bulkKrabNbAtacIntersect$V10 == 0,]$atac = "yes"
+aafInt800regions$prox = bulkRegionsGeneTss[match(aafInt800regions$ident, bulkRegionsGeneTss$V4),14]
+aafInt800regions$closestGeneTss = bulkRegionsGeneTss[match(aafInt800regions$ident, bulkRegionsGeneTss$V4),10]
+nrow(subset(aafInt800regions, aafInt800regions$prox == "intragenic" & aafInt800regions$closestGene == aafInt800regions$gene & aafInt800regions$sig == "sig"))
+subset(aafInt800regions, aafInt800regions$prox == "intragenic" & aafInt800regions$closestGene == aafInt800regions$gene & aafInt800regions$sig == "sig")
+nrow(subset(aafInt800regions, aafInt800regions$prox == "intragenic" & aafInt800regions$closestGene != aafInt800regions$gene & aafInt800regions$sig == "sig"))
+```
+
+```{bash}
+bedtools intersect -wa -wb -a ../noNA_bulkRegions.bed -b ../gencode.v24.annotation.gtf.genes.bed | bedtools merge -i stdin -c 4,9 -o distinct,distinct > noNA_bulkRegions.genesIntersectMerged.bed
+
+```
+
+```{r}
+bulkRegionsMergedGeneIntersect =  read.csv("./noNA_bulkRegions.genesIntersectMerged.bed",header=F, sep="\t")
+aafInt800regions$geneIntersect = bulkRegionsMergedGeneIntersect[match(aafInt800regions$ident, bulkRegionsMergedGeneIntersect$V4),5]
+aafInt800regions$geneIntersect = factor(aafInt800regions$geneIntersect)
+
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="AC195454.1"] <- "LINC02265"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="UCHL1-AS1"] <- "UCHL1.AS1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="LVCAT1"] <- "LINC02475"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-663P9.2"] <- "NDUFB4P12"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="ZBTB12P1"] <- "ZBTB12BP"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-700J17.2"] <- "AC096586.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-700J17.1"] <- "AC096586.2"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-814H16.2"] <- "AC106052.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-109E24.1"] <- "AC096734.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-333E13.2"] <- "AC098591.2"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-395I6.3"] <- "AC095057.3"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-324J13.1"] <- "AC098590.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-472B18.1"] <- "AC021148.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-539G18.3"] <- "AC108471.2"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-227F19.1"] <- "AC105389.3"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-109E24.2"] <- "AC096734.2"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-360F5.3"] <- "AC079921.2"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-63A11.1"] <- "AC024022.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-457P14.5"] <- "AC108210.1"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="APBB2,RP11-632F7.3"] <- "APBB2"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="PHOX2B,RP11-227F19.1,RP11-227F19.2"] <- "PHOX2B,AC105389.3"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-227F19.1,RP11-227F19.2"] <- "AC105389.3"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RNU1-49P,RP11-227F19.1"] <- "AC105389.3"
+levels(aafInt800regions$geneIntersect)[levels(aafInt800regions$geneIntersect)=="RP11-457P14.6"] <- NA
+
+aafInt800regions$geneIntersectIsTarget = mapply(function(x, y) grepl(x, y, fixed = T), aafInt800regions$gene, aafInt800regions$geneIntersect)
+
+nrow(subset(aafInt800regions, aafInt800regions$sig == "sig" & aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$prox == "intragenic"))
+#[1] 7
+nrow(subset(aafInt800regions, aafInt800regions$sig == "sig" & aafInt800regions$geneIntersectIsTarget == "FALSE" & aafInt800regions$prox == "intragenic"))
+#[1] 58
+
+nrow(subset(aafInt800regions, aafInt800regions$sig == "sig" & aafInt800regions$geneIntersectIsTarget == "TRUE"))
+#[1] 11
+nrow(subset(aafInt800regions, aafInt800regions$sig == "sig" & aafInt800regions$geneIntersectIsTarget == "FALSE"))
+#[1] 81
+
+
+#for all intragenic CaREs per gene
+intraGenes = unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE","gene"])
+
+
+###chatGPT corrected code
+
+# Ensure intraGeneDf is initialized
+intraGeneDf <- data.frame()
+
+# Loop through genes
+for (gene in intraGenes) {
+  
+  # Dynamically create variables
+  assign(paste0(gene, "IntraRegions"), 
+         unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == gene, "ident"]))
+  
+  assign(paste0(gene, "AllSigRegions"), 
+         unique(aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$gene == gene, "ident"]))
+  
+  assign(paste0(gene, "IntraRegionsCellsPurturbed"), 
+         unique(unlist(lapply(get(paste0(gene, "IntraRegions")), function(col_name) {
+           if (col_name %in% colnames(matCw@meta.data)) {
+             matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+             names(matCw@active.ident)[matching_rows]
+           } else {
+             NULL
+           }
+         }))))
+  
+  assign(paste0(gene, "AllSigRegionsCellsPurturbed"), 
+         unique(unlist(lapply(get(paste0(gene, "AllSigRegions")), function(col_name) {
+           if (col_name %in% colnames(matCw@meta.data)) {
+             matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+             names(matCw@active.ident)[matching_rows]
+           } else {
+             NULL
+           }
+         }))))
+
+  assign(paste0(gene, "CombinedCellsPurturbed"),
+         c(get(paste0(gene, "IntraRegionsCellsPurturbed")), get(paste0(gene, "AllSigRegionsCellsPurturbed"))))
+
+  assign(paste0(gene, "IntraRegionsCellsNotPurturbed"), 
+         names(matCw@active.ident)[!names(matCw@active.ident) %in% get(paste0(gene, "CombinedCellsPurturbed"))])
+  
+  assign(paste0(gene, "IntraProxRegions"), 
+         unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == gene & aafInt800regions$prox == "proximal", "ident"]))
+  
+  assign(paste0(gene, "IntraIntraRegions"), 
+         unique(aafInt800regions[aafInt800regions$geneIntersectIsTarget == "TRUE" & aafInt800regions$gene == gene & aafInt800regions$prox == "intragenic", "ident"]))
+  
+  assign(paste0(gene, "IntraProxRegionsCellsPurturbed"), 
+         unique(unlist(lapply(get(paste0(gene, "IntraProxRegions")), function(col_name) {
+           if (col_name %in% colnames(matCw@meta.data)) {
+             matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+             names(matCw@active.ident)[matching_rows]
+           } else {
+             NULL
+           }
+         }))))
+  
+  assign(paste0(gene, "IntraIntraRegionsCellsPurturbed"), 
+         unique(unlist(lapply(get(paste0(gene, "IntraIntraRegions")), function(col_name) {
+           if (col_name %in% colnames(matCw@meta.data)) {
+             matching_rows <- matCw@meta.data[[col_name]] == "perturbed"
+             names(matCw@active.ident)[matching_rows]
+           } else {
+             NULL
+           }
+         }))))
+  
+  # Create a list and melt it
+  intraProxList <- list(
+    proxTargeted = matCw@assays$SCT@data[gene, get(paste0(gene, "IntraProxRegionsCellsPurturbed"))],
+    distTargeted = matCw@assays$SCT@data[gene, get(paste0(gene, "IntraIntraRegionsCellsPurturbed"))],
+    notTargeted = matCw@assays$SCT@data[gene, get(paste0(gene, "IntraRegionsCellsNotPurturbed"))]
+  )
+  
+  melted_list <- melt(intraProxList)
+  melted_list$gene <- gene
+  
+  # Append to intraGeneDf
+  intraGeneDf <- rbind(intraGeneDf, melted_list)
+}
+
+
+pdf("allGenesIntraProx.pdf")
+ggplot(intraGeneDf, aes(x = gene, y=value, fill=L1, color=L1)) + geom_boxplot() + coord_cartesian(ylim = c(0,6)) + theme_classic() + xlab("intragenic CaREs") + ylab("log corrected counts per cell")
+dev.off()
+
+
+
+geneMaxRhapCounts = apply(matCw@assays$SCT@data,1,max)
+
+geneMeanRhapCounts = apply(matCw@assays$SCT@data,1,mean)
+
+
+```
+
+
+##address spreading by looking target expression for closest CaREs that have different targets in cells where the primary care is targeted and not the secondary care
+```{r}
+write.table((unique(aafInt800regions[,c(11,12,13,7)])), file="rhapRegions.bed", quote=F, sep="\t", row.names=F, col.names=F)
+```
+```{bash}
+bedtools closest -d -N -a <(bedtools sort -i rhapRegions.bed) -b <(bedtools sort -i rhapRegions.bed) > rhapRegions.bed_selfClosest.bed
+
+
+```
+```{r}
+rhapRegionsSelfClosest = read.csv("rhapRegions.bed_selfClosest.bed", header=F, sep="\t")
+aafInt800regions$careClosestCare = rhapRegionsSelfClosest[match(aafInt800regions$ident, rhapRegionsSelfClosest$V4),8]
+aafInt800regions$careClosestCareDist = rhapRegionsSelfClosest[match(aafInt800regions$ident, rhapRegionsSelfClosest$V4),9]
+sigRegionTargets = aafInt800regions[aafInt800regions$sig == "sig",] %>% group_by(ident) %>% summarise(targets = paste(unique(gene), collapse = ","))
+sigRegionTargets = as.data.frame(sigRegionTargets)
+aafInt800regions$careClosestCareTargets = sigRegionTargets[match(aafInt800regions$careClosestCare, sigRegionTargets$ident),2]
+##this "same target" is decieving because primary CaRE is one line per target
+aafInt800regions$careClosestCareTargetsSame = mapply(function(x, y) grepl(x, y, fixed = T), aafInt800regions$gene, aafInt800regions$careClosestCareTargets)
+
+unique(aafInt800regions[aafInt800regions$sig == "sig" & !is.na(aafInt800regions$careClosestCareTargets), c(7,67,68,69,72)])
+           ident careClosestCare careClosestCareDist  careClosestCareTargets          allCareTargets
+61007   Region_1        Region_3                3671              PDS5A,TLR1      RBM47,NSUN7,RPS7P7
+61715 Region_171      Region_174                9631                   APBB2               NDUFB4P12
+61774 Region_174      Region_179                9129                    TLR1                   APBB2
+63249   Region_3        Region_1                3671      RBM47,NSUN7,RPS7P7              PDS5A,TLR1
+67851 Region_553      Region_557                4752                  PHOX2B        PHOX2B,LINC00682
+68028 Region_561      Region_562                1557                  PHOX2B                  PHOX2B
+69385 Region_668      Region_669                1133                   BEND4                  CHRNA9
+69444 Region_669      Region_668                1133                  CHRNA9                   BEND4
+69503 Region_671      Region_669                2254                   BEND4        BEND4,AC098590.1
+70624 Region_729      Region_730                1020            BEND4,SHISA3         SHISA3,ZBTB12BP
+71155 Region_740      Region_741                 826                  SHISA3            SHISA3,BEND4
+71214 Region_741      Region_740                 826            SHISA3,BEND4                  SHISA3
+71981 Region_789      Region_790                 654        SHISA3,TLR6,UGDH                  SHISA3
+72040 Region_790      Region_789                 654                  SHISA3        SHISA3,TLR6,UGDH
+72099 Region_803      Region_806                5134 SHISA3,TMEM156,PABPC1P1                  SHISA3
+72158 Region_806      Region_803                5134                  SHISA3 SHISA3,TMEM156,PABPC1P1
+72512 Region_828      Region_829                1266                  SHISA3   SHISA3,TLR6,LINC02265
+72571 Region_829      Region_828                1266   SHISA3,TLR6,LINC02265                  SHISA3
+72748 Region_836      Region_831                7172                  SHISA3                  ATP8A1
+
+19 cases, 12 share a common gene, 11 less than 2.5 kb, 10 less than 2 kb, 4 less than 1 kb
+
+```
+
+###cares with phox2b binding from chip that do not target phox2b gene look in cells with phox2b targeting guides to see if the targets of these other cares are also activated, i.e. indirect effects
+```{bash}
+cat ../tfChips/filtered*PHOX* | cut -f1-3 | bedtools sort -i stdin | bedtools merge -i stdin > mergedFilteredPhox2bChips.bed
+bedtools intersect -u -a rhapRegions.bed -b mergedFilteredPhox2bChips.bed > rhapRegionsWithPhox2bBinding.bed
+
+
+```
+
+```{r}
+phox2bBindingCares = read.csv("rhapRegionsWithPhox2bBinding.bed", header=F, sep="\t")
+aafInt800regions$phox2bBinding = aafInt800regions$ident %in% phox2bBindingCares$V4
+
+aafInt800regions$allCareTargets = sigRegionTargets[match(aafInt800regions$ident, sigRegionTargets$ident),2]
+unique(aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$phox2bBinding == "TRUE",c("ident","allCareTargets")])
+#           ident                             allCareTargets
+#65786 Region_477                                     PHOX2B
+#66317 Region_494                             PHOX2B,SLC30A9
+#66848 Region_512                                     PHOX2B
+#67025 Region_520                                     PHOX2B
+#67261 Region_530                           PHOX2B,LINC00682
+#67497 Region_537                           PHOX2B,LINC00682
+#67851 Region_553                           PHOX2B,LINC00682
+#67910 Region_557                                     PHOX2B
+#68028 Region_561                                     PHOX2B
+#68205 Region_564 LINC00682,PHOX2B,RPS7P7,AC095057.3,SLC30A9
+#71155 Region_740                               SHISA3,BEND4
+#71214 Region_741                                     SHISA3
+#72571 Region_829                                     SHISA3
+#73692 Region_935                               WDR19,GNPDA2
+
+#there are 4 cares that have ChIP binding sites for phox2b and do not significantly target Phox2b. so the question is in cells that have guides targeting phox2b, are these cares activated through secondary effects and thus their genes as well. 
+
+aafInt800regions[aafInt800regions$sig == "sig" & aafInt800regions$gene == "PHOX2B",c("ident","avg_logFC","allCareTargets")]
+#           ident  avg_logFC                             allCareTargets
+#65786 Region_477  0.4677258                                     PHOX2B
+#66317 Region_494 -0.5493911                             PHOX2B,SLC30A9
+#66612 Region_504  0.3603152                                     PHOX2B
+#66848 Region_512 -0.3404573                                     PHOX2B
+#67025 Region_520  0.4048890                                     PHOX2B
+#67261 Region_530 -0.3854239                           PHOX2B,LINC00682
+#67497 Region_537 -0.3656320                           PHOX2B,LINC00682
+#67851 Region_553  0.8111515                           PHOX2B,LINC00682
+#67910 Region_557  0.6284872                                     PHOX2B
+#68028 Region_561  0.5063157                                     PHOX2B
+#68087 Region_562 -0.2376408                                     PHOX2B
+#68206 Region_564  0.4317661 LINC00682,PHOX2B,RPS7P7,AC095057.3,SLC30A9
+#74046  Region_99 -0.5605712                             PHOX2B,TMEM156
+
+
+
+#genes targeted by CaREs that have phox2b binding sites and do not target phox2b:
+phox2bPromSecTars = data.frame()
+shisa3phoxPromList = list("phox2bPromCells" = matCw@assays$SCT@data["SHISA3", region494cells], "nonPhox2bPromCells" = matCw@assays$SCT@data["SHISA3", region494nonCells])
+shisa3phoxPromListMelted = melt(shisa3phoxPromList)
+shisa3phoxPromListMelted$gene = "SHISA3"
+phox2bPromSecTars = rbind(phox2bPromSecTars,shisa3phoxPromListMelted)
+
+bend4phoxPromList = list("phox2bPromCells" = matCw@assays$SCT@data["BEND4", region494cells], "nonPhox2bPromCells" = matCw@assays$SCT@data["BEND4", region494nonCells])
+bend4phoxPromListMelted = melt(bend4phoxPromList)
+bend4phoxPromListMelted$gene = "BEND4"
+phox2bPromSecTars = rbind(phox2bPromSecTars,bend4phoxPromListMelted)
+
+wdr19phoxPromList = list("phox2bPromCells" = matCw@assays$SCT@data["WDR19", region494cells], "nonPhox2bPromCells" = matCw@assays$SCT@data["WDR19", region494nonCells])
+wdr19phoxPromListMelted = melt(wdr19phoxPromList)
+wdr19phoxPromListMelted$gene = "WDR19"
+phox2bPromSecTars = rbind(phox2bPromSecTars,wdr19phoxPromListMelted)
+
+gnpda2phoxPromList = list("phox2bPromCells" = matCw@assays$SCT@data["GNPDA2", region494cells], "nonPhox2bPromCells" = matCw@assays$SCT@data["GNPDA2", region494nonCells])
+gnpda2phoxPromListMelted = melt(gnpda2phoxPromList)
+gnpda2phoxPromListMelted$gene = "GNPDA2"
+phox2bPromSecTars = rbind(phox2bPromSecTars,gnpda2phoxPromListMelted)
+
+pdf("phox2bPromSecTars.pdf")
+ggplot(phox2bPromSecTars, aes(x = gene, y=value, fill=L1, color=L1)) + geom_boxplot() + coord_cartesian(ylim = c(0,6)) + theme_classic() + xlab("Phox2b target genes") + ylab("corrected counts per cell")
+dev.off()
+
+```
+
+
+###guide level bulk promoters krab and vpr
+```{bash}
+perl -lane 'next if $_ =~ /chromosome/;print "$F[0]\t$F[1]\t$F[2]\t$F[7]\t$F[8]\t$F[11]" if $F[11] < 0.05;' /fast/AG_Ohler/Lorena/CRISPR_phox2b/PAPER/KRAB_guide_results.txt > KRAB_guide_results_sig.bed
+perl -lane 'next if $_ =~ /chromosome/;print "$F[0]\t$F[1]\t$F[2]\t$F[7]\t$F[8]\t$F[11]" if $F[11] < 0.05;' /fast/AG_Ohler/Lorena/CRISPR_phox2b/PAPER/VPR_guide_results.txt > VPR_guide_results_sig.bed
+
+cut -f1-3,8 /fast/AG_Ohler/Lorena/CRISPR_phox2b/PAPER/KRAB_guide_results.txt | grep -v chromosome > bulkGuides.bed
+bedtools intersect -u -a <(bedtools slop -b 1000 -i bulkGuides.bed -g /fast/AG_Ohler/Scott/hg38/hg38.chrom.sizes) -b ../gencode.v24.annotation.gtf.genes.bed_true5end.bed | cut -f4 > bulkGuidesPromProxIds.txt
+bedtools intersect -u -a <(bedtools slop -b 500 -i ../noNA_bulkRegions.bed -g /fast/AG_Ohler/Scott/hg38/hg38.chrom.sizes) -b ../gencode.v24.annotation.gtf.genes.bed_true5end.bed | cut -f4 > bulkRegionsPromProxIds.txt
+
+
+
+```
+```{r}
+guidesPromProx = read.csv("bulkGuidesPromProxIds.txt", header=F, sep="\t")
+regionsPromProx= read.csv("bulkRegionsPromProxIds.txt", header=F, sep="\t")
+vpr$prox = "dist"
+vpr[vpr$NAME %in% guidesPromProx$V1,]$prox = "prox"
+krab$prox = "dist"
+krab[krab$NAME %in% guidesPromProx$V1,]$prox = "prox"
+proxFdrData = data.frame("vpr" = vpr[vpr$prox == "prox", "fdr"], "krab" = krab[krab$prox == "prox","fdr"])
+
+pdf("vprKrabPromProxHexbinFdr.pdf")
+ggplot(proxFdrData, aes(x=-log10(vpr), y=-log10(krab))) + geom_hex() + theme_minimal()
+dev.off()
+
+proxLogfoldData = data.frame("vpr" = vpr[vpr$prox == "prox","logfold"], "krab" = krab[krab$prox == "prox","logfold"])
+pdf("vprKrabPromProxHexbinLfc.pdf")
+ggplot(proxLogfoldData, aes(x=vpr, y=krab)) + geom_hex() + theme_minimal()
+dev.off()
+
+
+krabRegionsGithub$prox = "dist"
+krabRegionsGithub[krabRegionsGithub$Gene %in% regionsPromProx$V1,"prox"] = "prox"
+vprRegionsGithub$prox = "dist"
+vprRegionsGithub[vprRegionsGithub$Gene %in% regionsPromProx$V1,"prox"] = "prox"
+
+proxFdrRegionData = data.frame("vpr" = vprRegionsGithub[vprRegionsGithub$prox == "prox","fdr"],"krab"=krabRegionsGithub[krabRegionsGithub$prox == "prox","fdr"])
+proxEstimateData = data.frame("vpr" = vprRegionsGithub[vprRegionsGithub$prox == "prox","estimate"],"krab"=krabRegionsGithub[krabRegionsGithub$prox == "prox","estimate"])
+
+pdf("vprKrabRegionPromProxHexbinFdr.pdf")
+ggplot(proxFdrRegionData, aes(x=-log10(vpr), y=-log10(krab))) + geom_hex() + theme_minimal()
+dev.off()
+
+pdf("vprKrabRegionPromProxHexbinEstimate.pdf")
+ggplot(proxEstimateData, aes(x=vpr, y=krab)) + geom_hex() + theme_minimal()
+dev.off()
+
+
+
+```
+
+
+## about spreading
+```{r}
+write.table((unique(aafInt800regions[aafInt800regions$sig == "sig",c(11,12,13,7)])), file="rhapRegionsSig.bed", quote=F, sep="\t", row.names=F, col.names=F)
+```
+```{bash}
+bedtools closest -d -N -a <(bedtools sort -i rhapRegionsSig.bed) -b <(bedtools sort -i rhapRegionsSig.bed) > rhapRegionsSig.bed_selfClosest.bed
+
+```
+```{r}
+rhapRegionsSigSelfClosest = read.csv("rhapRegionsSig.bed_selfClosest.bed", header=F, sep="\t")
+rhapRegionsSigSelfClosest$closestPairId = paste(rhapRegionsSigSelfClosest$V4, rhapRegionsSigSelfClosest$V8, sep = ";")
+rhapRegionsSelfClosest$closestPairId = paste(rhapRegionsSelfClosest$V4, rhapRegionsSelfClosest$V8, sep = ";")
+
+rhapRegionsSigSelfClosest$isClosest = rhapRegionsSigSelfClosest$closestPairId %in% rhapRegionsSelfClosest$closestPairId
+
+sameTargetTest = aafInt800regions[aafInt800regions$sig == "sig",] %>% group_by(ident) %>% summarise(test = paste(unique(careClosestCareTargetsSame), collapse = ","))
+sameTargetTest = as.data.frame(sameTargetTest)
+sameTargetTest$sameTarget = "FALSE"
+sameTargetTest[sameTargetTest$test != "FALSE",]$sameTarget = "TRUE"
+
+rhapRegionsSigSelfClosest$sameTarget = sameTargetTest[match(rhapRegionsSigSelfClosest$V4, sameTargetTest$ident),3]
+
+rhapRegionsSigSelfClosest$aTargets = sigRegionTargets[match(rhapRegionsSigSelfClosest$V4, sigRegionTargets$ident),2]
+rhapRegionsSigSelfClosest$bTargets = sigRegionTargets[match(rhapRegionsSigSelfClosest$V8, sigRegionTargets$ident),2] 
+
+
+```
+
+
+##bulk promoter hits
+```{bash}
+bedtools intersect -u -a <(bedtools slop -b 500 -i ../sig_noNA_bulkRegions.bed -g /fast/AG_Ohler/Scott/hg38/hg38.chrom.sizes) -b ../gencode.v24.annotation.gtf.genes.bed_true5end.bed > bulkRegionsSlop500PromoterHits.bed
+
+./SubsetColXFromColY.pl bulkRegionsSlop500PromoterHits.bed ../../../Analysis/new/regions_results.txt 3 0 | cut -d ' ' -f1,3,4 | sort -u
+#Region_1 2.778364648627946e-10 -0.025566425702765946
+#Region_234 0.0014880800950941922 -0.023984568575235607
+#Region_256 1.6444611498782617e-13 -0.023072612453615953
+#Region_272 7.342784677877018e-4 -0.05118174726236607
+#Region_273 0.0040117111984585615 -0.02033606062284719
+#Region_35 0.0034342529391672037 -0.015572023024381567
+#Region_494 4.096257927023982e-59 -0.041193128470207827
+#Region_504 7.93692633270191e-9 -0.027212203238187675
+#Region_518 0.0021815609728705826 -0.03216907288641364
+#Region_566 3.054761843954166e-7 -0.020014680991815286
+#Region_577 3.4343825164409367e-8 -0.03436530575593351
+#Region_582 7.889928622735733e-8 -0.030176092373576865
+#Region_603 8.851237480456368e-6 -0.038575252792186696
+#Region_609 3.5573274472801413e-6 -0.024681271104997474
+#Region_671 2.190652713213877e-20 -0.026210040794922413
+#Region_786 9.471656644591901e-4 -0.02082253991162549
+#Region_790 3.004129946039519e-7 -0.02409076319520438
+#Region_903 7.825126850946496e-4 -0.02995195779513215
+#Region_921 1.2962560918224394e-7 -0.028932682679010474
+
+bedtools intersect -wa -wb -a <(bedtools slop -b 500 -i ../sig_noNA_bulkRegions.bed -g /fast/AG_Ohler/Scott/hg38/hg38.chrom.sizes) -b ../gencode.v24.annotation.gtf.genes.bed_true5end.bed
+#chr4    40748815        40752721        Region_1        2.77836464862795e-10    chr4    40749896        40749897        NSUN7   .       +
+#chr4    40826686        40828335        Region_35       0.0034342529391672      chr4    40826764        40826765        Y_RNA   .       -
+#chr4    41215812        41217062        Region_234      0.00148808009509419     chr4    41216713        41216714        APBB2   .       -
+#chr4    41255075        41258444        Region_256      1.64446114987826e-13    chr4    41256726        41256727        UCHL1-AS1       .       -
+#chr4    41255075        41258444        Region_256      1.64446114987826e-13    chr4    41256412        41256413        UCHL1   .       +
+#chr4    41302338        41303464        Region_272      0.000734278467787702    chr4    41303336        41303337        Y_RNA   .       -
+#chr4    41302995        41304035        Region_273      0.00401171119845856     chr4    41303336        41303337        Y_RNA   .       -
+#chr4    41748211        41753252        Region_494      4.09625792702398e-59    chr4    41748969        41748970        PHOX2B  .       -
+#chr4    41748211        41753252        Region_494      4.09625792702398e-59    chr4    41748292        41748293        RP11-227F19.1   .       +
+#chr4    41748211        41753252        Region_494      4.09625792702398e-59    chr4    41750344        41750345        RP11-227F19.2   .       +
+#chr4    41770629        41772768        Region_504      7.93692633270191e-09    chr4    41772102        41772103        RNU1-49P        .       -
+#chr4    41793880        41795037        Region_518      0.00218156097287058     chr4    41794772        41794773        AC105389.1      .       -
+#chr4    41891926        41894915        Region_566      3.05476184395417e-07    chr4    41894578        41894579        RP11-457P14.5   .       -
+#chr4    41922670        41925036        Region_577      3.43438251644094e-08    chr4    41924179        41924180        RP11-457P14.6   .       +
+#chr4    41934779        41936464        Region_582      7.88992862273573e-08    chr4    41935119        41935120        TMEM33  .       +
+#chr4    41981080        41982166        Region_603      8.85123748045637e-06    chr4    41981695        41981696        DCAF4L1 .       +
+#chr4    41990287        41991860        Region_609      3.55732744728014e-06    chr4    41990471        41990472        SLC30A9 .       +
+#chr4    42151289        42154921        Region_671      2.19065271321388e-20    chr4    42152877        42152878        BEND4   .       -
+#chr4    42391182        42392340        Region_786      0.00094716566445919     chr4    42391267        42391268        RP11-63A11.1    .       -
+#chr4    42396877        42399243        Region_790      3.00412994603952e-07    chr4    42397838        42397839        SHISA3  .       +
+#chr4    42656677        42658144        Region_903      0.00078251268509465     chr4    42657104        42657105        ATP8A1  .       -
+#chr4    42656677        42658144        Region_903      0.00078251268509465     chr4    42657495        42657496        RP11-109E24.2   .       +
+#chr4    42705893        42707634        Region_921      1.29625609182244e-07    chr4    42706106        42706107        RP11-109E24.1   .       +
+```
